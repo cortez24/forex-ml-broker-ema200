@@ -1,81 +1,85 @@
+# src/ml_pipeline.py
 import os
-import pandas as pd
 import joblib
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import classification_report, accuracy_score
 from xgboost import XGBClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report
-from feature_engineering import prepare_features
+from config import PROCESSED_DIR, MODELS_DIR
+from typing import List
 
+os.makedirs(MODELS_DIR, exist_ok=True)
 
-# ==============================
-# PIPELINE
-# ==============================
+def load_features(symbol: str) -> pd.DataFrame:
+    p = os.path.join(PROCESSED_DIR, f"{symbol}_features.csv")
+    if not os.path.exists(p):
+        raise FileNotFoundError(p)
+    df = pd.read_csv(p)
+    return df
 
-def train_model(pair: str, data_dir="data/processed", model_dir="models"):
-    """
-    Train model untuk 1 pasangan forex (misalnya EURUSD).
-    """
-    # Load data harga
-    file_path = os.path.join(data_dir, f"{pair}.csv")
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Data {pair} tidak ditemukan di {file_path}")
+def build_pipeline():
+    pipe = Pipeline([
+        ('scaler', StandardScaler()),
+        ('clf', XGBClassifier(use_label_encoder=False, eval_metric='logloss', n_jobs=-1, tree_method='hist'))
+    ])
+    return pipe
 
-    df_price = pd.read_csv(file_path)
-    df_price["time"] = pd.to_datetime(df_price["time"])
+def hyperparam_search(X, y, n_iter=30):
+    pipe = build_pipeline()
+    param_dist = {
+        'clf__max_depth': [3,5,7,9],
+        'clf__learning_rate': [0.01, 0.03, 0.05, 0.1],
+        'clf__n_estimators': [100,200,300],
+        'clf__subsample': [0.6,0.8,1.0],
+        'clf__colsample_bytree': [0.6,0.8,1.0]
+    }
+    tscv = TimeSeriesSplit(n_splits=5)
+    rsearch = RandomizedSearchCV(pipe, param_distributions=param_dist, n_iter=n_iter, cv=tscv, scoring='accuracy', n_jobs=-1, verbose=1)
+    rsearch.fit(X, y)
+    return rsearch
 
-    # Load data news
-    news_path = os.path.join(data_dir, "news.csv")
-    df_news = pd.read_csv(news_path) if os.path.exists(news_path) else None
+def train_symbol(symbol: str, do_search: bool = False):
+    df = load_features(symbol)
+    X = df.drop(columns=['time','target'])
+    y = df['target']
+    # simple split
+    split_idx = int(len(X)*0.8)
+    X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
+    y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
 
-    # Feature engineering
-    df = prepare_features(df_price, df_news)
+    if do_search:
+        print(f"[{symbol}] Starting hyperparam search ...")
+        search = hyperparam_search(X_train, y_train)
+        best = search.best_estimator_
+        print(f"[{symbol}] best params: {search.best_params_}")
+        model = best
+    else:
+        model = build_pipeline()
+        model.fit(X_train, y_train)
 
-    # Target label: arah harga (1 naik, 0 turun)
-    df["target"] = (df["close"].shift(-1) > df["close"]).astype(int)
-    df = df.dropna()
-
-    X = df.drop(columns=["time", "target"])
-    y = df["target"]
-
-    # Train/test split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, shuffle=False
-    )
-
-    # Model XGBoost
-    model = XGBClassifier(
-        n_estimators=200,
-        max_depth=5,
-        learning_rate=0.05,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42
-    )
-
-    model.fit(X_train, y_train)
     preds = model.predict(X_test)
-
-    print(f"=== Report {pair} ===")
+    acc = accuracy_score(y_test, preds)
+    print(f"[{symbol}] Test Accuracy: {acc:.4f}")
     print(classification_report(y_test, preds))
 
-    # Save model
-    os.makedirs(model_dir, exist_ok=True)
-    model_file = os.path.join(model_dir, f"{pair}_xgb.json")
-    joblib.dump(model, model_file)
-    print(f"[OK] Model {pair} disimpan di {model_file}")
+    out_path = os.path.join(MODELS_DIR, f"{symbol}_xgb.joblib")
+    joblib.dump(model, out_path)
+    print(f"[OK] Saved model: {out_path}")
+    return out_path
 
-
-def train_all_pairs(pairs=None):
-    """
-    Train semua pasangan forex yang tersedia.
-    """
-    if pairs is None:
-        pairs = ["EURUSD", "USDJPY", "GBPUSD", "AUDUSD"]
-
-    for pair in pairs:
-        train_model(pair)
-
+def train_all(symbols: List[str] = None, do_search: bool = False):
+    if symbols is None:
+        # find all processed files
+        files = [f for f in os.listdir(PROCESSED_DIR) if f.endswith('_features.csv')]
+        symbols = [f.replace('_features.csv','') for f in files]
+    for s in symbols:
+        try:
+            train_symbol(s, do_search=do_search)
+        except Exception as e:
+            print(f"[ERROR] training {s}: {e}")
 
 if __name__ == "__main__":
-    train_all_pairs()
-
+    train_all(do_search=False)
