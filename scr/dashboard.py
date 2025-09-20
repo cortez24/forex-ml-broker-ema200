@@ -1,68 +1,81 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from src.technicals import calculate_ema
+import os
+
+from predict import predict_next_move
+
 
 # ==============================
-# DASHBOARD UTAMA
+# LOAD DATA
 # ==============================
+def load_data(pair, data_dir="data/processed"):
+    file_path = os.path.join(data_dir, f"{pair}.csv")
+    if not os.path.exists(file_path):
+        st.error(f"Data {pair} tidak ditemukan di {file_path}")
+        return None
+    df = pd.read_csv(file_path)
+    df["time"] = pd.to_datetime(df["time"])
+    return df
 
-st.set_page_config(page_title="Forex Dashboard", layout="wide")
 
-st.title("📊 Forex Trading Dashboard")
-st.markdown("Pantau pergerakan pasangan forex dengan indikator EMA-200 (4H).")
+# ==============================
+# DASHBOARD APP
+# ==============================
+def main():
+    st.set_page_config(page_title="Forex Trading Dashboard", layout="wide")
 
-# --- Pilihan Pair ---
-pairs = ["EURUSD", "USDJPY", "GBPUSD", "AUDUSD"]
-selected_pair = st.sidebar.selectbox("Pilih Pasangan Forex:", pairs)
+    st.title("📊 Forex Trading Dashboard dengan ML Predictions")
 
-# --- Load Data ---
-try:
-    df = pd.read_csv(f"data/processed/{selected_pair}.csv")
-    df['time'] = pd.to_datetime(df['time'])
-except FileNotFoundError:
-    st.error(f"Data untuk {selected_pair} belum tersedia. Jalankan scraper & preprocessing terlebih dahulu.")
-    st.stop()
+    pairs = ["EURUSD", "USDJPY", "GBPUSD", "AUDUSD"]
+    pair = st.sidebar.selectbox("Pilih Pair", pairs)
 
-# --- Hitung EMA 200 (timeframe 4H) ---
-df = calculate_ema(df, column="close", period=200)
+    df = load_data(pair)
+    if df is None:
+        return
 
-# --- Chart Harga ---
-fig = go.Figure()
+    # Chart candlestick
+    fig = go.Figure(data=[go.Candlestick(
+        x=df["time"],
+        open=df["open"],
+        high=df["high"],
+        low=df["low"],
+        close=df["close"],
+        name=pair
+    )])
 
-# Candlestick
-fig.add_trace(go.Candlestick(
-    x=df['time'],
-    open=df['open'],
-    high=df['high'],
-    low=df['low'],
-    close=df['close'],
-    name="Harga"
-))
+    fig.update_layout(
+        title=f"{pair} - Candlestick Chart",
+        xaxis_title="Time",
+        yaxis_title="Price",
+        template="plotly_dark",
+        height=600
+    )
 
-# EMA-200
-fig.add_trace(go.Scatter(
-    x=df['time'],
-    y=df['EMA_200'],
-    mode="lines",
-    line=dict(color="orange", width=2),
-    name="EMA 200"
-))
+    st.plotly_chart(fig, use_container_width=True)
 
-fig.update_layout(
-    title=f"{selected_pair} dengan EMA 200 (4H)",
-    xaxis_title="Waktu",
-    yaxis_title="Harga",
-    xaxis_rangeslider_visible=False,
-    template="plotly_dark"
-)
+    # ==============================
+    # ML PREDICTION
+    # ==============================
+    st.subheader("🤖 Prediksi Machine Learning")
 
-st.plotly_chart(fig, use_container_width=True)
+    try:
+        result = predict_next_move(pair)
+        col1, col2 = st.columns(2)
 
-# --- Info Fundamental ---
-st.subheader("📰 Berita Fundamental Terkini")
-try:
-    news_df = pd.read_csv("data/processed/news.csv").tail(10)
-    st.table(news_df[['time', 'title', 'impact']])
-except FileNotFoundError:
-    st.warning("Data berita fundamental belum tersedia. Jalankan `scraper_fundamental.py` dulu.")
+        with col1:
+            st.metric("Pair", result["pair"])
+            st.metric("Last Price", f"{result['last_price']:.4f}")
+            st.metric("Prediction", result["prediction"])
+
+        with col2:
+            st.metric("Prob UP", f"{result['probability_up']*100:.2f}%")
+            st.metric("Prob DOWN", f"{result['probability_down']*100:.2f}%")
+            st.metric("Timestamp", result["timestamp"])
+
+    except Exception as e:
+        st.error(f"Gagal melakukan prediksi: {e}")
+
+
+if __name__ == "__main__":
+    main()
