@@ -1,31 +1,30 @@
-import importlib
+import os
+import subprocess
+import sys
 
-REQUIRED = {
-    "pandas": "2.2.2",
-    "numpy": "1.26.4",
-    "matplotlib": "3.9.2",
-    "seaborn": "0.13.2",
-    "joblib": "1.3.2",
-    "scikit-learn": "1.4.2",
-    "xgboost": "2.1.1",
-    "yfinance": "0.2.40",
-    "streamlit": "1.38.0",
-    "plotly": "5.24.1",
-    "pyngrok": "7.2.0",
-}
+def main():
+    print("🔍 Checking working directory...")
+    cwd = os.getcwd()
+    print(f"📂 Current directory: {cwd}")
 
-def check_packages():
-    print("🔍 Checking installed packages...\n")
-    for pkg, req_version in REQUIRED.items():
-        try:
-            module = importlib.import_module(pkg)
-            installed = getattr(module, "__version__", "unknown")
-            if installed == req_version:
-                print(f"✅ {pkg} {installed} (OK)")
-            else:
-                print(f"⚠️ {pkg} {installed} (expected {req_version})")
-        except ImportError:
-            print(f"❌ {pkg} not installed!")
+    # Cari requirements.txt
+    req_path = os.path.join(cwd, "requirements.txt")
+
+    if not os.path.exists(req_path):
+        print("❌ requirements.txt not found in current directory.")
+        print("➡️ Please run this first in Colab:")
+        print("   %cd forex-ml-broker-ema200")
+        sys.exit(1)
+
+    print("✅ Found requirements.txt")
+    print("📦 Installing dependencies...")
+
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req_path])
+        print("🎉 All dependencies installed successfully!")
+    except subprocess.CalledProcessError as e:
+        print("❌ Error during pip install")
+        print(e)
 
 if __name__ == "__main__":
-    check_packages()
+    main()
