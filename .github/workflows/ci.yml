@@ -1,4 +1,4 @@
-name: Forex ML Bot CI
+name: CI
 
 on:
   push:
@@ -10,17 +10,21 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
-      - name: Install dependencies
+          python-version: '3.10'
+      - name: Install deps
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Run Feature Engineering
+      - name: Generate dummy data
         run: |
-          python src/feature_engineering.py
-      - name: Train Models
+          python src/generate_dummy_data.py
+      - name: Prepare features
         run: |
-          python src/ml_pipeline.py
+          python -c "from feature_engineering import prepare_and_save; import os; files=[f for f in os.listdir('data/raw') if f.endswith('.csv')]; [prepare_and_save(f.replace('.csv','')) for f in files]"
+      - name: Train models (fast)
+        run: |
+          python -c "from ml_pipeline import train_all; train_all()"
