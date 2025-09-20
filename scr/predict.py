@@ -1,64 +1,57 @@
+# src/predict.py
 import os
 import joblib
 import pandas as pd
-from feature_engineering import prepare_features
+from feature_engineering import load_price, load_news, add_technicals, prepare_and_save
+from config import MODELS_DIR, PROCESSED_DIR
+from tpsl import map_prob_to_tpsl
 
+def load_model_for(symbol: str):
+    path = os.path.join(MODELS_DIR, f"{symbol}_xgb.joblib")
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+    return joblib.load(path)
 
-def load_model(pair: str, model_dir="models"):
+def predict_next(symbol: str):
     """
-    Load model terlatih untuk pasangan forex tertentu.
+    symbol e.g. 'EURUSD'
+    returns dict with prob_up, prob_down, pred_label, recommended tp/sl (abs levels)
     """
-    model_path = os.path.join(model_dir, f"{pair}_xgb.json")
+    model_path = os.path.join(MODELS_DIR, f"{symbol}_xgb.joblib")
     if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model {pair} tidak ditemukan di {model_path}")
-    return joblib.load(model_path)
-
-
-def predict_next_move(pair: str, data_dir="data/processed", model_dir="models"):
-    """
-    Prediksi arah harga berikutnya untuk pasangan forex tertentu.
-    Return: dict dengan hasil prediksi + probabilitas
-    """
-    # Load data harga
-    file_path = os.path.join(data_dir, f"{pair}.csv")
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Data {pair} tidak ditemukan di {file_path}")
-
-    df_price = pd.read_csv(file_path)
-    df_price["time"] = pd.to_datetime(df_price["time"])
-
-    # Load data news
-    news_path = os.path.join(data_dir, "news.csv")
-    df_news = pd.read_csv(news_path) if os.path.exists(news_path) else None
-
-    # Feature engineering
-    df = prepare_features(df_price, df_news)
-
-    # Load model
-    model = load_model(pair, model_dir)
-
-    # Gunakan hanya data terakhir
-    latest = df.drop(columns=["time"]).iloc[-1:]
-    prob = model.predict_proba(latest)[0]
-    pred = model.predict(latest)[0]
-
-    result = {
-        "pair": pair,
-        "prediction": "UP" if pred == 1 else "DOWN",
-        "probability_up": float(prob[1]),
-        "probability_down": float(prob[0]),
-        "last_price": float(df_price["close"].iloc[-1]),
-        "timestamp": str(df_price["time"].iloc[-1])
+        raise FileNotFoundError("Model not found. Train first.")
+    model = joblib.load(model_path)
+    # ensure features exist; if not, create
+    features_path = os.path.join(PROCESSED_DIR, f"{symbol}_features.csv")
+    if not os.path.exists(features_path):
+        prepare_and_save(symbol)
+    df = pd.read_csv(features_path)
+    X = df.drop(columns=['time','target'], errors='ignore')
+    last_feat = X.iloc[-1:]
+    probs = model.predict_proba(last_feat)[0]
+    prob_up = float(probs[1])
+    prob_down = float(probs[0])
+    pred = 1 if prob_up > prob_down else 0
+    last_price = df['close'].iloc[-1]
+    tl = map_prob_to_tpsl(prob_up if pred==1 else prob_down)
+    if tl is not None:
+        if tl['direction'] == 'long':
+            tp_price = last_price*(1+tl['tp_pct'])
+            sl_price = last_price*(1-tl['sl_pct'])
+        else:
+            tp_price = last_price*(1-tl['tp_pct'])
+            sl_price = last_price*(1+tl['sl_pct'])
+    else:
+        tp_price = sl_price = None
+    return {
+        'symbol': symbol,
+        'prediction': 'UP' if pred==1 else 'DOWN',
+        'prob_up': prob_up,
+        'prob_down': prob_down,
+        'last_price': last_price,
+        'tp_price': tp_price,
+        'sl_price': sl_price
     }
-    return result
-
 
 if __name__ == "__main__":
-    pairs = ["EURUSD", "USDJPY", "GBPUSD", "AUDUSD"]
-    for pair in pairs:
-        try:
-            res = predict_next_move(pair)
-            print(res)
-        except Exception as e:
-            print(f"[ERROR] {pair}: {e}")
-
+    print(predict_next("EURUSD"))
