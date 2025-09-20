@@ -1,12 +1,7 @@
 # src/scraper.py
 """
-Scraper gabungan untuk:
-1. Data harga forex (multi-pair dari Alpha Vantage API)
-2. Data berita fundamental (dari Investing.com)
-
-Output:
-- data/raw/forex_<pair>.csv   (misalnya forex_usd_idr.csv)
-- data/raw/news_data.csv
+Scraper gabungan untuk forex + news
+Jalankan otomatis 1x per hari dengan APScheduler
 """
 
 import os
@@ -15,6 +10,7 @@ import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 from datetime import datetime
+from apscheduler.schedulers.blocking import BlockingScheduler
 
 # === Konfigurasi API ===
 API_KEY = "demo"  # Ganti dengan API key Alpha Vantage Anda
@@ -81,9 +77,10 @@ def fetch_news(url="https://www.investing.com/news/economy"):
 
     return pd.DataFrame(news_data)
 
-# === Main ===
-if __name__ == "__main__":
-    # Scrape forex untuk semua pair
+# === Job utama ===
+def job_scraper():
+    print(f"\n🚀 Scraper dijalankan: {datetime.now()}")
+    # Scrape forex
     for pair in PAIRS:
         forex_df = fetch_forex(pair, INTERVAL)
         if not forex_df.empty:
@@ -91,7 +88,7 @@ if __name__ == "__main__":
             forex_path = os.path.join(RAW_DIR, f"forex_{pair_name}.csv")
             forex_df.to_csv(forex_path, index=False)
             print(f"✅ Data forex {pair} disimpan di {forex_path}")
-        time.sleep(12)  # rate limit per request
+        time.sleep(12)  # rate limit
 
     # Scrape news
     news_df = fetch_news()
@@ -99,3 +96,14 @@ if __name__ == "__main__":
         news_path = os.path.join(RAW_DIR, "news_data.csv")
         news_df.to_csv(news_path, index=False)
         print(f"✅ Data berita disimpan di {news_path}")
+
+# === Scheduler ===
+if __name__ == "__main__":
+    scheduler = BlockingScheduler()
+    # Jalan setiap hari jam 08:00 pagi
+    scheduler.add_job(job_scraper, "cron", hour=8, minute=0)
+    print("📅 Scheduler aktif. Scraper akan jalan otomatis tiap hari jam 08:00.")
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        print("⏹ Scheduler dihentikan.")
