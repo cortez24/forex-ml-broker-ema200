@@ -1,109 +1,93 @@
 # src/scraper.py
-"""
-Scraper gabungan untuk forex + news
-Jalankan otomatis 1x per hari dengan APScheduler
-"""
-
 import os
 import time
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 from datetime import datetime
-from apscheduler.schedulers.blocking import BlockingScheduler
+from typing import List
+import yfinance as yf
 
-# === Konfigurasi API ===
-API_KEY = "demo"  # Ganti dengan API key Alpha Vantage Anda
-BASE_URL = "https://www.alphavantage.co/query"
+from config import SUPPORTED_PAIRS, RAW_DIR, DEFAULT_PERIOD, DEFAULT_INTERVAL
 
-# === Konfigurasi path ===
-RAW_DIR = "data/raw"
 os.makedirs(RAW_DIR, exist_ok=True)
 
-# === Pasangan forex yang akan diambil ===
-PAIRS = ["USD/IDR", "EUR/USD", "AUD/USD"]
-INTERVAL = "5min"  # bisa "5min", "15min", "60min"
-
-# === Scraper Forex ===
-def fetch_forex(pair, interval="5min", outputsize="compact"):
-    params = {
-        "function": "FX_INTRADAY",
-        "from_symbol": pair.split("/")[0],
-        "to_symbol": pair.split("/")[1],
-        "interval": interval,
-        "apikey": API_KEY
-    }
-    r = requests.get(BASE_URL, params=params)
-    data = r.json()
-
-    key = f"Time Series FX ({interval})"
-    if key not in data:
-        print(f"❌ Gagal ambil data forex untuk {pair}.")
+# -------------------------
+# Price fetcher (yfinance fallback)
+# -------------------------
+def fetch_price_yf(pair: str, period: str = DEFAULT_PERIOD, interval: str = DEFAULT_INTERVAL):
+    """
+    pair: 'EUR/USD' -> map to 'EURUSD=X'
+    interval: '4h' -> yfinance expects '240m' or '4h' accepted
+    """
+    base, quote = pair.split('/')
+    ticker = f"{base}{quote}=X"
+    # yfinance interval expects '240m' or '1d', '1h' etc. We'll use '240m'
+    if interval.lower().endswith('h'):
+        minutes = int(interval[:-1]) * 60
+        yf_interval = f"{minutes}m"
+    else:
+        yf_interval = interval
+    df = yf.download(ticker, period=period, interval=yf_interval, progress=False)
+    if df.empty:
         return pd.DataFrame()
+    df = df.reset_index().rename(columns={'Datetime':'time', 'Date':'time'})
+    # unify column names
+    df = df.rename(columns={'Open':'open','High':'high','Low':'low','Close':'close','Volume':'volume'})
+    df['time'] = pd.to_datetime(df['time'])
+    return df[['time','open','high','low','close','volume']]
 
-    df = pd.DataFrame.from_dict(data[key], orient="index")
-    df.index = pd.to_datetime(df.index)
-    df = df.rename(columns={
-        "1. open": "open",
-        "2. high": "high",
-        "3. low": "low",
-        "4. close": "close"
-    }).astype(float)
-
-    df = df.sort_index().reset_index().rename(columns={"index": "timestamp"})
-    df["pair"] = pair
+# -------------------------
+# News scraper (Investing.com)
+# -------------------------
+def scrape_investing_news(pages: int = 1, limit=20) -> pd.DataFrame:
+    base = "https://www.investing.com/news/forex-news"
+    headers = {"User-Agent":"Mozilla/5.0"}
+    articles = []
+    try:
+        r = requests.get(base, headers=headers, timeout=10)
+        r.raise_for_status()
+    except Exception as e:
+        print("News fetch failed:", e)
+        return pd.DataFrame()
+    soup = BeautifulSoup(r.text, "lxml")
+    nodes = soup.select(".textDiv")[:limit]
+    for node in nodes:
+        title = node.get_text(strip=True)
+        link_tag = node.find_parent("a", href=True)
+        link = "https://www.investing.com" + link_tag['href'] if link_tag and link_tag['href'].startswith('/') else (link_tag['href'] if link_tag else "")
+        articles.append({'time': datetime.utcnow(), 'title': title, 'url': link})
+    if not articles:
+        return pd.DataFrame()
+    df = pd.DataFrame(articles)
+    df['time'] = pd.to_datetime(df['time'])
     return df
 
-# === Scraper News ===
-def fetch_news(url="https://www.investing.com/news/economy"):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    r = requests.get(url, headers=headers)
-    if r.status_code != 200:
-        print("❌ Gagal ambil berita.")
-        return pd.DataFrame()
+# -------------------------
+# Runner: fetch all pairs & news
+# -------------------------
+def run_all(fetch_pairs: List[str] = None):
+    if fetch_pairs is None:
+        fetch_pairs = SUPPORTED_PAIRS
+    for pair in fetch_pairs:
+        try:
+            df = fetch_price_yf(pair)
+            if df.empty:
+                print(f"[WARN] empty data for {pair}")
+                continue
+            symbol = pair.replace('/', '')
+            path = os.path.join(RAW_DIR, f"{symbol}.csv")
+            df.to_csv(path, index=False)
+            print(f"[OK] saved {path} rows={len(df)}")
+            time.sleep(1)
+        except Exception as e:
+            print(f"[ERROR] {pair}: {e}")
 
-    soup = BeautifulSoup(r.text, "html.parser")
-    articles = soup.find_all("article", limit=10)
+    news = scrape_investing_news()
+    if not news.empty:
+        npath = os.path.join(RAW_DIR, "news.csv")
+        news.to_csv(npath, index=False)
+        print(f"[OK] saved news to {npath}")
 
-    news_data = []
-    for art in articles:
-        title = art.get_text().strip()
-        link = art.find("a")["href"] if art.find("a") else ""
-        news_data.append({
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "title": title,
-            "link": "https://www.investing.com" + link if link else ""
-        })
-
-    return pd.DataFrame(news_data)
-
-# === Job utama ===
-def job_scraper():
-    print(f"\n🚀 Scraper dijalankan: {datetime.now()}")
-    # Scrape forex
-    for pair in PAIRS:
-        forex_df = fetch_forex(pair, INTERVAL)
-        if not forex_df.empty:
-            pair_name = pair.replace("/", "_").lower()
-            forex_path = os.path.join(RAW_DIR, f"forex_{pair_name}.csv")
-            forex_df.to_csv(forex_path, index=False)
-            print(f"✅ Data forex {pair} disimpan di {forex_path}")
-        time.sleep(12)  # rate limit
-
-    # Scrape news
-    news_df = fetch_news()
-    if not news_df.empty:
-        news_path = os.path.join(RAW_DIR, "news_data.csv")
-        news_df.to_csv(news_path, index=False)
-        print(f"✅ Data berita disimpan di {news_path}")
-
-# === Scheduler ===
 if __name__ == "__main__":
-    scheduler = BlockingScheduler()
-    # Jalan setiap hari jam 08:00 pagi
-    scheduler.add_job(job_scraper, "cron", hour=8, minute=0)
-    print("📅 Scheduler aktif. Scraper akan jalan otomatis tiap hari jam 08:00.")
-    try:
-        scheduler.start()
-    except (KeyboardInterrupt, SystemExit):
-        print("⏹ Scheduler dihentikan.")
+    run_all()
