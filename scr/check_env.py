@@ -2,21 +2,32 @@ import os
 import subprocess
 import sys
 
-def main():
-    print("🔍 Checking working directory...")
-    cwd = os.getcwd()
-    print(f"📂 Current directory: {cwd}")
+def find_requirements(start_dir="."):
+    """
+    Cari file requirements.txt di direktori dan subfolder.
+    """
+    for root, dirs, files in os.walk(start_dir):
+        if "requirements.txt" in files:
+            return os.path.join(root, "requirements.txt")
+    return None
 
-    # Cari requirements.txt
-    req_path = os.path.join(cwd, "requirements.txt")
+def main():
+    print("🔍 Checking environment...")
+
+    # Cek di direktori saat ini
+    req_path = os.path.join(os.getcwd(), "requirements.txt")
 
     if not os.path.exists(req_path):
-        print("❌ requirements.txt not found in current directory.")
-        print("➡️ Please run this first in Colab:")
-        print("   %cd forex-ml-broker-ema200")
+        print("⚠️ requirements.txt not found in current directory.")
+        print("🔎 Searching in subfolders...")
+        req_path = find_requirements(".")
+    
+    if not req_path:
+        print("❌ requirements.txt not found anywhere in repo.")
+        print("➡️ Make sure you cloned the full repo and are inside the right folder.")
         sys.exit(1)
 
-    print("✅ Found requirements.txt")
+    print(f"✅ Found requirements.txt at: {req_path}")
     print("📦 Installing dependencies...")
 
     try:
