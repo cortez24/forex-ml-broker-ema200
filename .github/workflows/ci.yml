@@ -1,30 +1,29 @@
-name: CI
+name: CI - Forex ML Broker
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ main ]
+    branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      - name: Install deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      - name: Generate dummy data
-        run: |
-          python src/generate_dummy_data.py
-      - name: Prepare features
-        run: |
-          python -c "from feature_engineering import prepare_and_save; import os; files=[f for f in os.listdir('data/raw') if f.endswith('.csv')]; [prepare_and_save(f.replace('.csv','')) for f in files]"
-      - name: Train models (fast)
-        run: |
-          python -c "from ml_pipeline import train_all; train_all()"
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run environment check
+      run: |
+        python src/check_env.py
