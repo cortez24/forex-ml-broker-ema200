@@ -1,23 +1,11 @@
-# Data Handling
-pandas>=2.0.0
-numpy>=1.24.0
+pandas
+numpy
+scikit-learn
+xgboost
+ta
+joblib
+streamlit
+plotly
+requests
+beautifulsoup4
 
-# Visualization
-plotly>=5.15.0
-matplotlib>=3.8.0
-
-# Dashboard
-streamlit>=1.26.0
-
-# HTTP Requests / Parsing (untuk scraper)
-requests>=2.31.0
-beautifulsoup4>=4.12.2
-
-# Time handling
-python-dateutil>=2.8.2
-
-# Machine Learning / Backtest opsional
-scikit-learn>=1.3.0
-
-# Jupyter Notebooks
-notebook>=7.0.0
