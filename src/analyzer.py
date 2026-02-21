@@ -57,7 +57,7 @@ def add_indicators(df):
 
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
     if not all(col in df.columns for col in required_cols):
-        logging.error("Dataframe tidak memiliki kolom yang diperlukan")
+        logging.error(f"Dataframe tidak memiliki kolom yang diperlukan. Kolom yang ada: {df.columns.tolist()}")
         return df
 
     try:
@@ -480,13 +480,11 @@ def run_backtest_realtime(pair, interval="4h", days_back=90, min_confidence=65):
     if df is None or df.empty:
         return {"error": "Gagal mendapatkan data dari API"}
     
-    # Pastikan kolom sesuai (seharusnya sudah dari twelve_data)
     required = ['Open', 'High', 'Low', 'Close', 'Volume']
     if not all(col in df.columns for col in required):
-        return {"error": "Data dari API tidak memiliki kolom yang diperlukan"}
+        return {"error": f"Data dari API tidak memiliki kolom yang diperlukan. Kolom: {df.columns.tolist()}"}
     
-    # Karena kita hanya punya satu timeframe, kita perlu juga data 1D untuk analisis multi-timeframe
-    # Alternatif: kita bisa resample data 4h menjadi daily untuk 1D
+    # Resample untuk mendapatkan data harian
     df_daily = df.resample('D').agg({
         'Open': 'first',
         'High': 'max',
@@ -621,10 +619,11 @@ def get_live_prediction(pair):
     if df_4h is None or df_1d is None:
         return {"error": "Gagal mendapatkan data historis"}
     
-    # Pastikan kolom sesuai
     required = ['Open', 'High', 'Low', 'Close', 'Volume']
-    if not all(col in df_4h.columns for col in required) or not all(col in df_1d.columns for col in required):
-        return {"error": "Data historis tidak memiliki kolom yang diperlukan"}
+    if not all(col in df_4h.columns for col in required):
+        return {"error": f"Data 4h tidak memiliki kolom yang diperlukan. Kolom: {df_4h.columns.tolist()}"}
+    if not all(col in df_1d.columns for col in required):
+        return {"error": f"Data 1D tidak memiliki kolom yang diperlukan. Kolom: {df_1d.columns.tolist()}"}
     
     data_dict = {'1D': df_1d, '4h': df_4h}
     signals = multi_timeframe_analysis(data_dict)
