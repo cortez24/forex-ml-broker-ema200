@@ -7,6 +7,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
+# =====================================================
+# CONFIG
+# =====================================================
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FOLDER = os.path.join(BASE_DIR, "data")
 MODEL_FILE = os.path.join(BASE_DIR, "ml_model.pkl")
@@ -15,37 +19,52 @@ if not os.path.exists(DATA_FOLDER):
     os.makedirs(DATA_FOLDER)
 
 # =====================================================
-# SMART FILE LOADER (ANTI ERROR TOTAL)
+# SMART CSV LOADER (AUTO DETECT FORMAT)
 # =====================================================
 
 def load_price_file(filename):
 
     # auto detect separator
-    df = pd.read_csv(filename, sep=None, engine='python', header=None)
+    df = pd.read_csv(filename, sep=None, engine="python")
 
-    # jika hanya 1 kolom → berarti separator salah
+    # jika cuma 1 kolom → coba whitespace
     if df.shape[1] == 1:
-        df = pd.read_csv(filename, delim_whitespace=True, header=None)
+        df = pd.read_csv(filename, delim_whitespace=True)
 
-    if df.shape[1] != 6:
-        raise Exception("Format CSV salah. Harus 6 kolom: datetime open high low close volume")
+    # jika masih 1 kolom → file rusak
+    if df.shape[1] < 6:
+        raise Exception("Format CSV salah. Harus 6 kolom.")
 
-    df.columns = ['datetime','open','high','low','close','volume']
+    # jika tidak ada header close → berarti tanpa header
+    if "close" not in df.columns:
+        df = pd.read_csv(filename, sep=None, engine="python", header=None)
 
-    numeric_cols = ['open','high','low','close','volume']
+        if df.shape[1] == 1:
+            df = pd.read_csv(filename, delim_whitespace=True, header=None)
+
+        df.columns = ["datetime","open","high","low","close","volume"]
+
+    df.columns = df.columns.str.lower()
+
+    numeric_cols = ["open","high","low","close","volume"]
 
     for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
     df.dropna(inplace=True)
 
     return df
 
 # =====================================================
-# DOWNLOAD DATA (OPTIONAL)
+# DOWNLOAD DATA FROM YAHOO
 # =====================================================
 
 def download_data(pair, interval="1h", period="180d"):
+
+    if not pair:
+        raise ValueError("Pair kosong")
+
+    pair = pair.upper().replace("_1H","").replace("_1h","")
 
     symbol_map = {
         "EURUSD": "EURUSD=X",
@@ -54,13 +73,20 @@ def download_data(pair, interval="1h", period="180d"):
         "XAUUSD": "GC=F"
     }
 
-    pair = pair.upper()
-    symbol = symbol_map.get(pair)
+    if pair.endswith("=X") or pair.endswith("=F"):
+        symbol = pair
+    else:
+        symbol = symbol_map.get(pair)
 
     if not symbol:
-        raise ValueError("Pair tidak didukung")
+        raise ValueError(f"Pair {pair} tidak didukung")
+
+    print("Downloading:", symbol)
 
     df = yf.download(symbol, interval=interval, period=period)
+
+    if df.empty:
+        raise Exception("Download gagal dari Yahoo")
 
     df = df.rename(columns=str.lower)
     df.reset_index(inplace=True)
@@ -109,7 +135,7 @@ def backtest(pair):
     filename = os.path.join(DATA_FOLDER, f"{pair}_1h.csv")
 
     if not os.path.exists(filename):
-        raise Exception("File tidak ditemukan")
+        raise Exception("File data tidak ditemukan")
 
     df = load_price_file(filename)
     df = add_indicators(df)
@@ -149,7 +175,7 @@ def backtest(pair):
     }
 
 # =====================================================
-# MACHINE LEARNING
+# MACHINE LEARNING TRAIN
 # =====================================================
 
 def train_ml(pair):
@@ -158,7 +184,7 @@ def train_ml(pair):
     filename = os.path.join(DATA_FOLDER, f"{pair}_1h.csv")
 
     if not os.path.exists(filename):
-        raise Exception("File tidak ditemukan")
+        raise Exception("File data tidak ditemukan")
 
     df = load_price_file(filename)
     df = add_indicators(df)
@@ -185,6 +211,10 @@ def train_ml(pair):
 
     return round(acc*100,2)
 
+# =====================================================
+# MACHINE LEARNING PREDICT
+# =====================================================
+
 def ml_predict(pair):
 
     if not os.path.exists(MODEL_FILE):
@@ -192,6 +222,9 @@ def ml_predict(pair):
 
     pair = pair.upper()
     filename = os.path.join(DATA_FOLDER, f"{pair}_1h.csv")
+
+    if not os.path.exists(filename):
+        raise Exception("File data tidak ditemukan")
 
     df = load_price_file(filename)
     df = add_indicators(df)
