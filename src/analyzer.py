@@ -91,48 +91,7 @@ def add_indicators(df):
 
 # ===================== DETEKSI POLA CANDLESTICK =====================
 def detect_candlestick_patterns(df):
-    """
-    Mendeteksi pola candlestick pada baris terakhir dataframe menggunakan pandas_ta.
-    Mengembalikan tuple (buy_score, sell_score, list pola yang terdeteksi).
-    """
-    buy_score = 0
-    sell_score = 0
-    patterns_detected = []
-
-    # Daftar pola yang akan dideteksi
-    pattern_list = [
-        ('Doji', talib.CDLDOJI, 5, 'neutral'),
-        ('Hammer', ta.cdl_hammer, 10, 'bullish'),
-        ('Shooting Star', ta.cdl_shooting_star, 10, 'bearish'),
-        ('Bullish Engulfing', ta.cdl_engulfing, 15, 'bullish'),
-        ('Bearish Engulfing', ta.cdl_engulfing, 15, 'bearish'),
-        ('Bullish Harami', ta.cdl_harami, 10, 'bullish'),
-        ('Bearish Harami', ta.cdl_harami, 10, 'bearish'),
-        ('Morning Star', ta.cdl_morning_star, 20, 'bullish'),
-        ('Evening Star', ta.cdl_evening_star, 20, 'bearish'),
-        ('Piercing Line', ta.cdl_piercing, 15, 'bullish'),
-        ('Dark Cloud Cover', ta.cdl_dark_cloud_cover, 15, 'bearish'),
-    ]
-
-    for name, func, weight, pattern_type in pattern_list:
-        try:
-            # Fungsi pandas_ta mengembalikan Series dengan nilai 100, -100, atau 0
-            result = func(df['Open'], df['High'], df['Low'], df['Close'])
-            if result is not None and len(result) > 0:
-                last_val = result.iloc[-1]
-                if last_val != 0:
-                    if pattern_type == 'bullish' and last_val > 0:
-                        buy_score += weight
-                        patterns_detected.append(name)
-                    elif pattern_type == 'bearish' and last_val < 0:
-                        sell_score += weight
-                        patterns_detected.append(name)
-                    # netral diabaikan
-        except Exception as e:
-            logging.debug(f"Error detecting pattern {name}: {e}")
-            continue
-
-    return buy_score, sell_score, patterns_detected
+    return False, False, []
 
 # ===================== DETEKSI SINYAL =====================
 def detect_signals(df):
