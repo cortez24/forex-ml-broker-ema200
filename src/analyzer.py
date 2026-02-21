@@ -3,57 +3,55 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import joblib
-from datetime import datetime, timedelta
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
+from datetime import datetime, timedelta
 
 DATA_FOLDER = "data"
 MODEL_FOLDER = "models"
+CONF_THRESHOLD = 60
+TIMEFRAME = "4h"
+
 os.makedirs(DATA_FOLDER, exist_ok=True)
 os.makedirs(MODEL_FOLDER, exist_ok=True)
 
-CONF_THRESHOLD = 62
-RETRAIN_DAYS = 30
-
 
 # =========================
-# UTIL
+# FILE HANDLER
 # =========================
-
-def normalize_pair(pair):
-    return pair.upper().replace("_4H","").replace("=X","")
-
-
-def yahoo_symbol(pair):
-    pair = normalize_pair(pair)
-    if pair == "XAUUSD":
-        return "GC=F"
-    return pair + "=X"
-
 
 def data_file(pair):
-    return os.path.join(DATA_FOLDER, f"{normalize_pair(pair)}_4h.csv")
-
+    return os.path.join(DATA_FOLDER, f"{pair}_4h.csv")
 
 def model_file(pair):
-    return os.path.join(MODEL_FOLDER, f"{normalize_pair(pair)}.pkl")
+    return os.path.join(MODEL_FOLDER, f"{pair}_rf.pkl")
+
+def model_meta_file(pair):
+    return os.path.join(MODEL_FOLDER, f"{pair}_meta.pkl")
 
 
 # =========================
-# DOWNLOAD 2 YEARS
+# DOWNLOAD 2 YEARS DATA
 # =========================
 
 def download_data(pair):
-    symbol = yahoo_symbol(pair)
-    df = yf.download(symbol, interval="4h", period="2y")
+
+    yahoo_symbol = pair if pair.endswith("=X") else pair + "=X"
+
+    end = datetime.now()
+    start = end - timedelta(days=730)
+
+    df = yf.download(yahoo_symbol, start=start, end=end, interval="4h")
 
     if df.empty:
-        raise Exception("Download gagal")
+        raise ValueError("Pair tidak valid atau tidak ada data")
 
-    df = df.rename(columns=str.lower)
     df.reset_index(inplace=True)
+    df.columns = [c.lower() for c in df.columns]
+
     df.to_csv(data_file(pair), index=False)
-    return "OK"
+
+    return True
 
 
 # =========================
@@ -65,37 +63,73 @@ def compute_indicators(df):
     df["ema50"] = df["close"].ewm(span=50).mean()
     df["ema200"] = df["close"].ewm(span=200).mean()
 
-    delta = df["close"].diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = -delta.clip(upper=0).rolling(14).mean()
-    rs = gain / loss
-    df["rsi"] = 100 - (100/(1+rs))
+    df["ema_distance"] = df["ema50"] - df["ema200"]
 
-    high_low = df["high"] - df["low"]
-    high_close = abs(df["high"] - df["close"].shift())
-    low_close = abs(df["low"] - df["close"].shift())
-    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    df["atr"] = tr.rolling(14).mean()
+    df["rsi"] = compute_rsi(df["close"], 14)
 
-    plus_dm = df["high"].diff()
-    minus_dm = df["low"].diff()
-    plus_dm[plus_dm < 0] = 0
-    minus_dm[minus_dm > 0] = 0
+    df["momentum"] = df["close"].diff(5)
 
-    tr14 = tr.rolling(14).sum()
-    plus_di = 100 * (plus_dm.rolling(14).sum() / tr14)
-    minus_di = abs(100 * (minus_dm.rolling(14).sum() / tr14))
+    df["rsi_slope"] = df["rsi"].diff()
 
-    dx = abs(plus_di - minus_di) / (plus_di + minus_di) * 100
-    df["adx"] = dx.rolling(14).mean()
-
-    df["ema_distance"] = abs(df["ema50"] - df["ema200"])
-    df["momentum"] = df["close"] - df["close"].shift(3)
-    df["rsi_slope"] = df["rsi"] - df["rsi"].shift(3)
     df["price_vs_ema"] = df["close"] - df["ema50"]
 
+    df["atr"] = compute_atr(df, 14)
+
+    df["adx"] = compute_adx(df, 14)
+
     df.dropna(inplace=True)
+
     return df
+
+
+def compute_rsi(series, period):
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(period).mean()
+    avg_loss = loss.rolling(period).mean()
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+def compute_atr(df, period):
+    high_low = df["high"] - df["low"]
+    high_close = np.abs(df["high"] - df["close"].shift())
+    low_close = np.abs(df["low"] - df["close"].shift())
+    tr = np.maximum(high_low, np.maximum(high_close, low_close))
+    return tr.rolling(period).mean()
+
+
+def compute_adx(df, period):
+    plus_dm = df["high"].diff()
+    minus_dm = df["low"].diff().abs()
+    tr = compute_atr(df, period)
+    plus_di = 100 * (plus_dm.rolling(period).mean() / tr)
+    minus_di = 100 * (minus_dm.rolling(period).mean() / tr)
+    dx = abs(plus_di - minus_di) / (plus_di + minus_di) * 100
+    return dx.rolling(period).mean()
+
+
+# =========================
+# RULE SCORE
+# =========================
+
+def rule_score(row):
+
+    score = 0
+
+    if row["ema50"] > row["ema200"]:
+        score += 30
+    else:
+        score -= 30
+
+    if 40 < row["rsi"] < 60:
+        score += 20
+
+    if row["adx"] > 20:
+        score += 20
+
+    return max(0, min(100, score))
 
 
 # =========================
@@ -107,181 +141,159 @@ def train_model(pair):
     df = pd.read_csv(data_file(pair))
     df = compute_indicators(df)
 
-    df["target"] = np.where(df["close"].shift(-1) > df["close"],1,0)
+    df["target"] = (df["close"].shift(-1) > df["close"]).astype(int)
     df.dropna(inplace=True)
 
-    features = df[[
-        "ema_distance","adx","rsi",
-        "momentum","rsi_slope",
-        "price_vs_ema","atr"
-    ]]
+    features = [
+        "ema_distance", "adx", "rsi",
+        "momentum", "rsi_slope",
+        "price_vs_ema", "atr"
+    ]
 
-    target = df["target"]
+    X = df[features]
+    y = df["target"]
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        features, target, test_size=0.2, shuffle=False
-    )
+    X_train, X_test, y_train, y_test = train_test_split(X, y, shuffle=False)
 
-    model = RandomForestClassifier(
-        n_estimators=200,
-        max_depth=8,
-        random_state=42
-    )
-
+    model = RandomForestClassifier(n_estimators=200)
     model.fit(X_train, y_train)
+
     joblib.dump(model, model_file(pair))
-    return "trained"
+    joblib.dump(datetime.now(), model_meta_file(pair))
 
-
-# =========================
-# AUTO RETRAIN CHECK
-# =========================
 
 def ensure_model(pair):
 
-    file = model_file(pair)
-
-    if not os.path.exists(file):
+    if not os.path.exists(model_file(pair)):
         train_model(pair)
         return
 
-    created = datetime.fromtimestamp(os.path.getmtime(file))
-    if datetime.now() - created > timedelta(days=RETRAIN_DAYS):
+    last_train = joblib.load(model_meta_file(pair))
+    if (datetime.now() - last_train).days > 30:
         train_model(pair)
 
 
 # =========================
-# RULE SCORE
-# =========================
-
-def rule_score(row):
-
-    score = 0
-
-    if row["ema_distance"] > row["atr"]*0.5:
-        score += 30
-
-    if row["adx"] > 25:
-        score += 30
-    elif row["adx"] > 18:
-        score += 20
-
-    if 40 < row["rsi"] < 60:
-        score += 20
-
-    return min(score,100)
-
-
-# =========================
-# SIGNAL GENERATOR
+# GENERATE SIGNAL
 # =========================
 
 def generate_signal(pair):
-
-    if not os.path.exists(data_file(pair)):
-        raise Exception("Data belum didownload")
 
     ensure_model(pair)
 
     df = pd.read_csv(data_file(pair))
     df = compute_indicators(df)
 
-    last = df.iloc[-1]
+    row = df.iloc[-1]
 
-    if last["adx"] < 18:
-        return {"pair":pair,"signal":"NO TRADE (Low ADX)"}
+    if row["adx"] < 18:
+        return {"signal": "NO TRADE", "reason": "ADX < 18"}
 
-    trend = None
-    if last["ema50"] > last["ema200"]:
-        trend = "BUY"
-    elif last["ema50"] < last["ema200"]:
-        trend = "SELL"
-    else:
-        return {"pair":pair,"signal":"NO TREND"}
+    trend = 1 if row["ema50"] > row["ema200"] else -1
 
     model = joblib.load(model_file(pair))
 
-    feature_row = pd.DataFrame([[
-        last["ema_distance"],last["adx"],last["rsi"],
-        last["momentum"],last["rsi_slope"],
-        last["price_vs_ema"],last["atr"]
-    ]],columns=[
-        "ema_distance","adx","rsi",
-        "momentum","rsi_slope",
-        "price_vs_ema","atr"
+    features = pd.DataFrame([[
+        row["ema_distance"], row["adx"], row["rsi"],
+        row["momentum"], row["rsi_slope"],
+        row["price_vs_ema"], row["atr"]
+    ]], columns=[
+        "ema_distance", "adx", "rsi",
+        "momentum", "rsi_slope",
+        "price_vs_ema", "atr"
     ])
 
-    ml_prob = model.predict_proba(feature_row)[0][1]
+    ml_prob = model.predict_proba(features)[0][1]
+    rule = rule_score(row)
 
-    rule = rule_score(last)
-    final_conf = (rule*0.6) + (ml_prob*100*0.4)
+    final_conf = (rule * 0.6) + (ml_prob * 100 * 0.4)
 
     if final_conf < CONF_THRESHOLD:
-        return {"pair":pair,"signal":"NO TRADE (Low Confidence)"}
+        return {"signal": "NO TRADE", "confidence": round(final_conf,2)}
 
-    atr = last["atr"]
-    ema = last["ema50"]
+    entry = row["close"]
+    sl = entry - (1.2 * row["atr"] * trend)
+    tp1 = entry + (1.5 * row["atr"] * trend)
+    tp2 = entry + (2.5 * row["atr"] * trend * ml_prob)
 
-    if trend == "BUY":
-        entry_low = ema - 0.2*atr
-        entry_high = ema + 0.2*atr
-        sl = entry_low - 1.2*atr
-        tp1 = entry_high + 1.0*atr
-
-        if ml_prob > 0.75:
-            tp2 = entry_high + 2.4*atr
-        elif ml_prob > 0.65:
-            tp2 = entry_high + 2.0*atr
-        else:
-            tp2 = entry_high + 1.6*atr
-
-    else:
-        entry_low = ema - 0.2*atr
-        entry_high = ema + 0.2*atr
-        sl = entry_high + 1.2*atr
-        tp1 = entry_low - 1.0*atr
-
-        if ml_prob > 0.75:
-            tp2 = entry_low - 2.4*atr
-        elif ml_prob > 0.65:
-            tp2 = entry_low - 2.0*atr
-        else:
-            tp2 = entry_low - 1.6*atr
+    direction = "BUY" if trend == 1 else "SELL"
 
     return {
-        "pair":pair,
-        "bias":trend,
-        "entry_zone":[round(entry_low,5),round(entry_high,5)],
-        "sl":round(sl,5),
-        "tp1":round(tp1,5),
-        "tp2":round(tp2,5),
-        "confidence":round(final_conf,2),
-        "ml_probability":round(ml_prob,3),
-        "adx":round(last["adx"],2)
+        "signal": direction,
+        "confidence": round(final_conf,2),
+        "entry": round(entry,5),
+        "sl": round(sl,5),
+        "tp1": round(tp1,5),
+        "tp2": round(tp2,5)
     }
 
 
 # =========================
-# MARKET SCANNER
+# PERFORMANCE REPORT
 # =========================
 
-def scan_market():
+def performance_report(pair):
 
-    pairs = [
-        "EURUSD","GBPUSD","USDJPY",
-        "AUDUSD","NZDUSD","USDCAD",
-        "XAUUSD"
-    ]
+    ensure_model(pair)
 
-    results = []
+    df = pd.read_csv(data_file(pair))
+    df = compute_indicators(df)
 
-    for pair in pairs:
-        try:
-            sig = generate_signal(pair)
-            if "bias" in sig:
-                results.append(sig)
-        except:
+    model = joblib.load(model_file(pair))
+
+    trades = []
+    equity_curve = []
+    equity = 0
+
+    for i in range(200, len(df)-1):
+
+        row = df.iloc[i]
+
+        if row["adx"] < 18:
             continue
 
-    results.sort(key=lambda x: x["confidence"], reverse=True)
-    return results
+        trend = 1 if row["ema50"] > row["ema200"] else -1
+
+        features = pd.DataFrame([[
+            row["ema_distance"], row["adx"], row["rsi"],
+            row["momentum"], row["rsi_slope"],
+            row["price_vs_ema"], row["atr"]
+        ]], columns=[
+            "ema_distance", "adx", "rsi",
+            "momentum", "rsi_slope",
+            "price_vs_ema", "atr"
+        ])
+
+        ml_prob = model.predict_proba(features)[0][1]
+        rule = rule_score(row)
+        final_conf = (rule * 0.6) + (ml_prob * 100 * 0.4)
+
+        if final_conf < CONF_THRESHOLD:
+            continue
+
+        entry = row["close"]
+        next_close = df.iloc[i+1]["close"]
+
+        result = (next_close - entry) * trend
+
+        trades.append(result)
+        equity += result
+        equity_curve.append(equity)
+
+    if len(trades) == 0:
+        return {"error": "No trades"}
+
+    wins = [t for t in trades if t > 0]
+    losses = [t for t in trades if t <= 0]
+
+    winrate = len(wins)/len(trades)
+    sharpe = np.mean(trades)/np.std(trades) if np.std(trades)!=0 else 0
+
+    return {
+        "metrics": {
+            "total_trades": len(trades),
+            "winrate": round(winrate*100,2),
+            "sharpe": round(sharpe,2)
+        },
+        "equity_curve": equity_curve
+    }
