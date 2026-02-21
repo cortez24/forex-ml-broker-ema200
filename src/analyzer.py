@@ -5,7 +5,6 @@ import logging
 import pandas as pd
 import numpy as np
 from ta import add_all_ta_features
-from ta import add_all_ta_features
 from datetime import datetime, timedelta
 from twelve_data import download_and_cache, get_intraday_data, get_real_time_price, get_quote
 import warnings
