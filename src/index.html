@@ -70,7 +70,6 @@
             border: none;
             cursor: pointer;
             font-weight: bold;
-            padding: 10px 20px;
         }
         button:hover {
             background: #45a049;
@@ -127,7 +126,6 @@
         .negative { color: #f44336; }
         .error {
             color: #f44336;
-            font-weight: bold;
             background: #3d3d3d;
             padding: 10px;
             border-radius: 4px;
@@ -248,13 +246,11 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                         displayResults(data);
                         if (data.chart_data) {
                             drawChart(data.chart_data, data.entry, data.sl, data.tp);
-                        } else {
-                            chartDiv.innerHTML = '<p style="color: #aaa;">Data chart tidak tersedia.</p>';
                         }
                     }
                 } catch (err) {
                     if (err.name === 'AbortError') {
-                        errorDiv.textContent = 'Request timeout (30 detik). Server mungkin sibuk atau data terlalu besar.';
+                        errorDiv.textContent = 'Request timeout (30 detik). Server mungkin sibuk.';
                     } else {
                         console.error(err);
                         errorDiv.textContent = 'Gagal terhubung ke server. Pastikan server berjalan.';
@@ -296,18 +292,16 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
 
                 const reasonsDiv = document.getElementById('reasons');
                 reasonsDiv.innerHTML = '';
-                if (data.signals) {
-                    const timeframes = ['1D', '4h', '1h', '15min'];
-                    for (const tf of timeframes) {
+                const timeframes = ['1D', '4h', '1h', '15min'];
+                for (const tf of timeframes) {
+                    if (data.signals && data.signals[tf]) {
                         const s = data.signals[tf];
-                        if (s) {
-                            reasonsDiv.innerHTML += `
-                                <div style="margin-bottom:10px;">
-                                    <strong>${tf}</strong> - Buy: ${s.buy_score} | Sell: ${s.sell_score}<br>
-                                    <small>${s.reasons ? s.reasons.slice(0,3).join(', ') : ''}</small>
-                                </div>
-                            `;
-                        }
+                        reasonsDiv.innerHTML += `
+                            <div style="margin-bottom:10px;">
+                                <strong>${tf}</strong> - Buy: ${s.buy_score} | Sell: ${s.sell_score}<br>
+                                <small>${s.reasons ? s.reasons.slice(0,3).join(', ') : ''}</small>
+                            </div>
+                        `;
                     }
                 }
 
