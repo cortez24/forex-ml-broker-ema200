@@ -13,13 +13,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # ===================== KONFIGURASI =====================
 DATA_FOLDER = os.path.join(os.path.dirname(__file__), 'data')
-TIMEFRAMES = ["1D", "4h", "1H"]
-# Bobot untuk menggabungkan skor teknikal (1D dan 4H lebih dominan)
-WEIGHTS = {'1D': 0.5, '4h': 0.3, '1H': 0.2}
+TIMEFRAMES = ["1D", "4h"]                     # hanya 1D dan 4H
 WEIGHT_TECHNICAL = 0.7
 WEIGHT_FUNDAMENTAL = 0.3
-MAX_DATA_ROWS = 500  # batasi jumlah baris data untuk mempercepat komputasi
-MIN_CONFIDENCE = 65  # keyakinan minimal untuk memberikan rekomendasi
+MAX_DATA_ROWS = 500                           # batasi untuk efisiensi
+
+# Bobot teknikal per timeframe (harus sesuai urutan)
+TECH_WEIGHTS = {'1D': 0.6, '4h': 0.4}         # 1D 60%, 4H 40%
 
 # ===================== FUNGSI LOAD DATA =====================
 def load_data(pair, tf):
@@ -37,7 +37,6 @@ def load_data(pair, tf):
         df.set_index('Datetime', inplace=True)
         df.sort_index(inplace=True)
 
-        # Konversi ke numerik
         for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
         df.dropna(inplace=True)
@@ -46,7 +45,6 @@ def load_data(pair, tf):
             logging.warning(f"Data {filename} kosong setelah dibersihkan.")
             return None
 
-        # Ambil hanya MAX_DATA_ROWS baris terakhir (untuk efisiensi)
         if len(df) > MAX_DATA_ROWS:
             df = df.iloc[-MAX_DATA_ROWS:]
 
@@ -62,7 +60,6 @@ def add_indicators(df):
     if df is None or df.empty:
         return df
 
-    # Pastikan kolom yang diperlukan ada
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
     if not all(col in df.columns for col in required_cols):
         logging.error("Dataframe tidak memiliki kolom yang diperlukan")
@@ -94,8 +91,7 @@ def detect_signals(df):
     sell_score = 0
     reasons = []
 
-    # Cek keberadaan kolom sebelum akses
-    # 1. SMA
+    # 1. Trend SMA
     if 'sma_20' in df.columns and 'sma_50' in df.columns:
         if pd.notna(last['sma_20']) and pd.notna(last['sma_50']):
             if last['Close'] > last['sma_20'] and last['sma_20'] > last['sma_50']:
@@ -186,13 +182,14 @@ def multi_timeframe_analysis(data_dict):
     return signals
 
 def combine_technical_signals(signals):
+    """Gabungkan skor teknikal dengan bobot yang sudah ditentukan."""
     total_buy = 0
     total_sell = 0
     for tf, sig in signals.items():
         if sig is None:
             continue
-        total_buy += sig['buy_score'] * WEIGHTS[tf]
-        total_sell += sig['sell_score'] * WEIGHTS[tf]
+        total_buy += sig['buy_score'] * TECH_WEIGHTS[tf]
+        total_sell += sig['sell_score'] * TECH_WEIGHTS[tf]
 
     if total_buy > total_sell:
         return "BUY", total_buy
@@ -298,47 +295,41 @@ def analyze_pair(pair, news_text):
 
     final_dir, final_conf = combine_technical_fundamental(tech_dir, tech_conf, fund_dir, fund_conf)
 
-    # Jika keyakinan di bawah MIN_CONFIDENCE, ubah menjadi NEUTRAL
-    if final_conf < MIN_CONFIDENCE:
-        logging.info(f"Keyakinan {final_conf:.2f}% < {MIN_CONFIDENCE}%, rekomendasi diubah menjadi NEUTRAL")
-        final_dir = "NEUTRAL"
-        # entry, sl, tp akan tetap None
-
-    # Entry, SL, TP dari 1H (hanya jika final_dir bukan NEUTRAL)
-    df_1h = data.get('1H')
+    # Entry, SL, TP dari timeframe terkecil (4h)
+    df_entry = data.get('4h')
     entry_price = sl = tp = None
-    if final_dir in ["BUY", "SELL"] and df_1h is not None and not df_1h.empty and signals.get('1H') is not None:
-        last_row = df_1h.iloc[-1]
+    if df_entry is not None and not df_entry.empty and signals.get('4h') is not None:
+        last_row = df_entry.iloc[-1]
         entry_price = float(last_row['Close'])
-        atr_1h = signals['1H'].get('atr', 0)
-        if atr_1h > 0:
-            sl, tp = calculate_sl_tp(entry_price, atr_1h, final_dir)
+        atr_entry = signals['4h'].get('atr', 0)
+        if final_dir in ["BUY", "SELL"] and atr_entry > 0:
+            sl, tp = calculate_sl_tp(entry_price, atr_entry, final_dir)
 
-    # Data chart (tetap disediakan meskipun rekomendasi NEUTRAL)
+    # Data chart dari 4H
     chart_data = None
-    if df_1h is not None and not df_1h.empty:
-        df_1h_plot = add_indicators(df_1h.copy()).reset_index()
+    if df_entry is not None and not df_entry.empty:
+        df_plot = add_indicators(df_entry.copy()).reset_index()
         
-        # Fungsi untuk mengganti NaN dengan None (akan jadi null di JSON)
+        # Ganti NaN dengan None agar valid JSON
         def clean_series(series, decimals=5):
             return [None if pd.isna(x) else round(x, decimals) for x in series]
         
         chart_data = {
-            'time': df_1h_plot['Datetime'].dt.strftime('%Y-%m-%d %H:%M').tolist(),
-            'open': clean_series(df_1h_plot['Open']),
-            'high': clean_series(df_1h_plot['High']),
-            'low': clean_series(df_1h_plot['Low']),
-            'close': clean_series(df_1h_plot['Close']),
-            'volume': clean_series(df_1h_plot['Volume'], decimals=0),
-            'sma20': clean_series(df_1h_plot['sma_20']),
-            'sma50': clean_series(df_1h_plot['sma_50']),
-            'sma200': clean_series(df_1h_plot['sma_200']),
-            'bb_upper': clean_series(df_1h_plot['volatility_bbh']),
-            'bb_lower': clean_series(df_1h_plot['volatility_bbl']),
-            'rsi': clean_series(df_1h_plot['momentum_rsi'], decimals=2),
-            'macd': clean_series(df_1h_plot['trend_macd']),
-            'macd_signal': clean_series(df_1h_plot['trend_macd_signal']),
-            'macd_hist': clean_series(df_1h_plot['trend_macd_diff'])
+            'time': df_plot['Datetime'].dt.strftime('%Y-%m-%d %H:%M').tolist(),
+            'open': clean_series(df_plot['Open']),
+            'high': clean_series(df_plot['High']),
+            'low': clean_series(df_plot['Low']),
+            'close': clean_series(df_plot['Close']),
+            'volume': clean_series(df_plot['Volume'], decimals=0),
+            'sma20': clean_series(df_plot['sma_20']),
+            'sma50': clean_series(df_plot['sma_50']),
+            'sma200': clean_series(df_plot['sma_200']),
+            'bb_upper': clean_series(df_plot['volatility_bbh']),
+            'bb_lower': clean_series(df_plot['volatility_bbl']),
+            'rsi': clean_series(df_plot['momentum_rsi'], decimals=2),
+            'macd': clean_series(df_plot['trend_macd']),
+            'macd_signal': clean_series(df_plot['trend_macd_signal']),
+            'macd_hist': clean_series(df_plot['trend_macd_diff'])
         }
 
     result = {
