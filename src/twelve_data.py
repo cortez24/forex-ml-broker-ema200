@@ -85,32 +85,16 @@ def get_historical_data(symbol, interval="1h", outputsize=5000, start_date=None,
             df = pd.DataFrame(data["values"])
             df["datetime"] = pd.to_datetime(df["datetime"])
             df.set_index("datetime", inplace=True)
-            # Ubah nama kolom ke format yang kita pakai (Capitalized)
-            rename_map = {
+            df.rename(columns={
                 "open": "Open",
                 "high": "High",
                 "low": "Low",
                 "close": "Close",
                 "volume": "Volume"
-            }
-            # Hanya rename kolom yang ada
-            for old, new in rename_map.items():
-                if old in df.columns:
-                    df.rename(columns={old: new}, inplace=True)
-            
-            # Pastikan kolom Open, High, Low, Close ada
-            required = ['Open', 'High', 'Low', 'Close']
-            if not all(col in df.columns for col in required):
-                logging.error(f"Data dari API tidak memiliki kolom OHLC. Kolom: {df.columns.tolist()}")
-                return None
-            
-            # Jika Volume tidak ada, tambahkan dengan nilai 0
-            if 'Volume' not in df.columns:
-                df['Volume'] = 0
-            
-            # Konversi ke numeric
-            for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
+            }, inplace=True)
+            for col in ["Open", "High", "Low", "Close", "Volume"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
             df.dropna(inplace=True)
             return df
         elif "code" in data:
@@ -132,11 +116,7 @@ def download_and_cache(symbol, interval, output_folder="data/api"):
         if datetime.now() - file_time < timedelta(days=1):
             logging.info(f"Menggunakan cached data: {filename}")
             df = pd.read_csv(filepath, index_col=0, parse_dates=True)
-            # Pastikan kolom berformat Title Case (Open, High, dll)
             df.columns = [col.capitalize() for col in df.columns]
-            # Jika Volume tidak ada, tambahkan
-            if 'Volume' not in df.columns:
-                df['Volume'] = 0
             return df
 
     logging.info(f"Downloading {symbol} {interval}...")
@@ -154,7 +134,7 @@ def get_intraday_data(symbol, interval="1h", days=30):
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
 
-    if interval in ["1min", "5min"] and days > 7:
+    if interval in ["1min", "5min", "15min"] and days > 7:
         chunk_days = 7
         chunks = []
         current_start = start_date
