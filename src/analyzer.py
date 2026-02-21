@@ -247,7 +247,6 @@ def evaluate_fundamental(pair, currency_sentiment):
     else:
         return "NEUTRAL", 50.0
 
-# ===================== KOMBINASI =====================
 def combine_technical_fundamental(tech_dir, tech_conf, fund_dir, fund_conf):
     dir_val = {"BUY": 1, "SELL": -1, "NEUTRAL": 0}
     tech_val = dir_val[tech_dir] * tech_conf
@@ -481,8 +480,20 @@ def run_backtest_realtime(pair, interval="4h", days_back=90, min_confidence=65):
     if df is None or df.empty:
         return {"error": "Gagal mendapatkan data dari API"}
     
-    # Konversi kolom ke format yang diharapkan (kapital)
-    df.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+    # Pastikan kolom sesuai (seharusnya sudah dari twelve_data)
+    required = ['Open', 'High', 'Low', 'Close', 'Volume']
+    if not all(col in df.columns for col in required):
+        return {"error": "Data dari API tidak memiliki kolom yang diperlukan"}
+    
+    # Karena kita hanya punya satu timeframe, kita perlu juga data 1D untuk analisis multi-timeframe
+    # Alternatif: kita bisa resample data 4h menjadi daily untuk 1D
+    df_daily = df.resample('D').agg({
+        'Open': 'first',
+        'High': 'max',
+        'Low': 'min',
+        'Close': 'last',
+        'Volume': 'sum'
+    }).dropna()
     
     min_history = 200
     if len(df) < min_history + 1:
@@ -491,25 +502,24 @@ def run_backtest_realtime(pair, interval="4h", days_back=90, min_confidence=65):
     trades = []
     
     for i in range(min_history, len(df)):
-        df_current = df.iloc[:i+1].copy()
+        df_4h_current = df.iloc[:i+1].copy()
+        current_date = df_4h_current.index[-1]
+        df_1d_current = df_daily[df_daily.index <= current_date].copy()
         
-        # Untuk backtest real-time, kita hanya punya satu timeframe (interval)
-        # Asumsikan kita menggunakan interval yang sama untuk semua, misal 4h.
-        # Bisa juga download 1D secara terpisah, tapi untuk sederhana gunakan resample?
-        # Di sini kita gunakan data yang sama untuk 1D dan 4h (tidak ideal tapi untuk demo)
-        data_dict = {'1D': df_current.resample('D').last().dropna(), '4h': df_current}
+        if df_1d_current.empty:
+            continue
         
+        data_dict = {'1D': df_1d_current, '4h': df_4h_current}
         signals = multi_timeframe_analysis(data_dict)
         tech_dir, tech_conf = combine_technical_signals(signals)
         fund_dir, fund_conf = "NEUTRAL", 50.0
         final_dir, final_conf = combine_technical_fundamental(tech_dir, tech_conf, fund_dir, fund_conf)
         
         if final_conf >= min_confidence and final_dir != "NEUTRAL":
-            entry_price = df_current['Close'].iloc[-1]
+            entry_price = df_4h_current['Close'].iloc[-1]
             atr = signals['4h']['atr'] if signals['4h'] else 0
             if atr == 0:
                 continue
-                
             sl, tp = calculate_sl_tp(entry_price, atr, final_dir)
             
             max_hold = 20
@@ -544,7 +554,7 @@ def run_backtest_realtime(pair, interval="4h", days_back=90, min_confidence=65):
                     profit_pct = (sl - entry_price) / entry_price if final_dir == "BUY" else (entry_price - sl) / entry_price
                 
                 trades.append({
-                    'entry_time': str(df_current.index[-1]),
+                    'entry_time': str(df_4h_current.index[-1]),
                     'direction': final_dir,
                     'entry_price': entry_price,
                     'sl': sl,
@@ -611,11 +621,15 @@ def get_live_prediction(pair):
     if df_4h is None or df_1d is None:
         return {"error": "Gagal mendapatkan data historis"}
     
+    # Pastikan kolom sesuai
+    required = ['Open', 'High', 'Low', 'Close', 'Volume']
+    if not all(col in df_4h.columns for col in required) or not all(col in df_1d.columns for col in required):
+        return {"error": "Data historis tidak memiliki kolom yang diperlukan"}
+    
     data_dict = {'1D': df_1d, '4h': df_4h}
     signals = multi_timeframe_analysis(data_dict)
     tech_dir, tech_conf = combine_technical_signals(signals)
     
-    # Ambil ATR terbaru dari 4h
     atr_4h = signals['4h']['atr'] if signals['4h'] else 0
     if atr_4h > 0:
         sl, tp = calculate_sl_tp(current_price, atr_4h, tech_dir)
