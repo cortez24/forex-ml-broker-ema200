@@ -15,7 +15,7 @@ load_dotenv(env_path)
 API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 BASE_URL = "https://api.twelvedata.com"
 
-REQUEST_DELAY = 8
+REQUEST_DELAY = 8  # detik antara request (free tier)
 last_request_time = 0
 
 def rate_limit():
@@ -85,6 +85,7 @@ def get_historical_data(symbol, interval="1h", outputsize=5000, start_date=None,
             df = pd.DataFrame(data["values"])
             df["datetime"] = pd.to_datetime(df["datetime"])
             df.set_index("datetime", inplace=True)
+            # Rename kolom ke format Title Case
             df.rename(columns={
                 "open": "Open",
                 "high": "High",
@@ -92,6 +93,7 @@ def get_historical_data(symbol, interval="1h", outputsize=5000, start_date=None,
                 "close": "Close",
                 "volume": "Volume"
             }, inplace=True)
+            # Konversi ke numeric
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -116,6 +118,7 @@ def download_and_cache(symbol, interval, output_folder="data/api"):
         if datetime.now() - file_time < timedelta(days=1):
             logging.info(f"Menggunakan cached data: {filename}")
             df = pd.read_csv(filepath, index_col=0, parse_dates=True)
+            # Pastikan kolom Title Case
             df.columns = [col.capitalize() for col in df.columns]
             return df
 
@@ -134,7 +137,7 @@ def get_intraday_data(symbol, interval="1h", days=30):
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
 
-    if interval in ["1min", "5min", "15min"] and days > 7:
+    if interval in ["1min", "5min", "15min", "30min"] and days > 7:
         chunk_days = 7
         chunks = []
         current_start = start_date
