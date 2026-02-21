@@ -377,7 +377,6 @@ def run_backtest(pair, start_date, end_date, min_confidence=65, max_hold_candles
     """
     logging.info(f"Memulai backtest lokal untuk {pair} dari {start_date} hingga {end_date}")
 
-    # Load data
     data_1d = load_data(pair, "1D")
     data_4h = load_data(pair, "4h")
 
@@ -386,18 +385,15 @@ def run_backtest(pair, start_date, end_date, min_confidence=65, max_hold_candles
     if data_4h is None:
         return {"error": "Data 4H tidak ditemukan"}
 
-    # Urutkan berdasarkan waktu
     data_1d = data_1d.sort_index()
     data_4h = data_4h.sort_index()
 
-    # Filter berdasarkan rentang tanggal
     data_1d = data_1d.loc[start_date:end_date]
     data_4h = data_4h.loc[start_date:end_date]
 
     if data_4h.empty:
         return {"error": "Tidak ada data 4H dalam rentang yang dipilih"}
 
-    # Minimal data untuk indikator (SMA200 membutuhkan 200 candle)
     min_history = 200
     if len(data_4h) < min_history + 1:
         return {"error": f"Data 4H hanya {len(data_4h)} candle, butuh minimal {min_history+1} untuk analisis"}
@@ -405,14 +401,13 @@ def run_backtest(pair, start_date, end_date, min_confidence=65, max_hold_candles
     trades = []
     total_iterasi = 0
     sinyal_ditemukan = 0
+    max_conf_found = 0
 
-    # Loop setiap candle 4h mulai dari indeks ke-200
     for i in range(min_history, len(data_4h)):
         total_iterasi += 1
         df_4h_current = data_4h.iloc[:i+1].copy()
         current_date = df_4h_current.index[-1]
 
-        # Ambil data 1D sampai tanggal yang sama
         df_1d_current = data_1d[data_1d.index <= current_date].copy()
         if df_1d_current.empty:
             continue
@@ -420,10 +415,12 @@ def run_backtest(pair, start_date, end_date, min_confidence=65, max_hold_candles
         data_dict = {'1D': df_1d_current, '4h': df_4h_current}
         signals = multi_timeframe_analysis(data_dict)
         tech_dir, tech_conf = combine_technical_signals(signals)
-        fund_dir, fund_conf = "NEUTRAL", 50.0  # fundamental diabaikan dalam backtest
+        fund_dir, fund_conf = "NEUTRAL", 50.0
         final_dir, final_conf = combine_technical_fundamental(tech_dir, tech_conf, fund_dir, fund_conf)
 
-        # Jika confidence memenuhi syarat dan arah bukan NETRAL
+        if final_conf > max_conf_found:
+            max_conf_found = final_conf
+
         if final_conf >= min_confidence and final_dir != "NEUTRAL":
             sinyal_ditemukan += 1
             entry_price = df_4h_current['Close'].iloc[-1]
@@ -435,7 +432,6 @@ def run_backtest(pair, start_date, end_date, min_confidence=65, max_hold_candles
 
             sl, tp = calculate_sl_tp(entry_price, atr, final_dir)
 
-            # Cari exit dalam max_hold_candles ke depan
             exit_idx = None
             win = None
             for j in range(i+1, min(i+1+max_hold_candles, len(data_4h))):
@@ -460,7 +456,6 @@ def run_backtest(pair, start_date, end_date, min_confidence=65, max_hold_candles
                         break
 
             if exit_idx is not None:
-                # Hitung profit dalam persen
                 if win:
                     profit_pct = (tp - entry_price) / entry_price if final_dir == "BUY" else (entry_price - tp) / entry_price
                 else:
@@ -482,12 +477,11 @@ def run_backtest(pair, start_date, end_date, min_confidence=65, max_hold_candles
             else:
                 logging.debug(f"Sinyal {final_dir} pada {current_date} tidak mencapai TP/SL dalam {max_hold_candles} candle")
 
-    # Statistik
     total_trades = len(trades)
-    logging.info(f"Backtest selesai. Total iterasi: {total_iterasi}, sinyal memenuhi syarat: {sinyal_ditemukan}, trade tereksekusi: {total_trades}")
+    logging.info(f"Backtest selesai. Total iterasi: {total_iterasi}, sinyal memenuhi syarat: {sinyal_ditemukan}, trade tereksekusi: {total_trades}, confidence maks: {max_conf_found:.2f}%")
 
     if total_trades == 0:
-        return {"message": f"Tidak ada sinyal dengan confidence ≥ {min_confidence}% dalam periode ini"}
+        return {"message": f"Tidak ada sinyal dengan confidence ≥ {min_confidence}% dalam periode ini. Confidence maksimum yang ditemukan: {max_conf_found:.2f}%"}
 
     wins = sum(1 for t in trades if t['win'])
     losses = total_trades - wins
@@ -499,7 +493,6 @@ def run_backtest(pair, start_date, end_date, min_confidence=65, max_hold_candles
     total_loss = abs(sum(t['profit_pct'] for t in trades if not t['win']))
     profit_factor = total_profit / total_loss if total_loss != 0 else float('inf')
 
-    # Hitung max drawdown sederhana
     equity = 0
     peak = 0
     max_dd = 0
@@ -507,7 +500,7 @@ def run_backtest(pair, start_date, end_date, min_confidence=65, max_hold_candles
         equity += t['profit_pct']
         if equity > peak:
             peak = equity
-        dd = (peak - equity) / 100  # dalam persen
+        dd = (peak - equity) / 100
         if dd > max_dd:
             max_dd = dd
 
@@ -520,7 +513,7 @@ def run_backtest(pair, start_date, end_date, min_confidence=65, max_hold_candles
         'avg_profit_pct': round(avg_profit_pct, 2),
         'profit_factor': round(profit_factor, 2),
         'max_drawdown_pct': round(max_dd, 2),
-        'trades': trades[-20:]  # 20 trade terakhir
+        'trades': trades[-20:]
     }
     return result
 
