@@ -20,6 +20,24 @@ WEIGHT_FUNDAMENTAL = 0.3
 MAX_DATA_ROWS = 500
 TECH_WEIGHTS = {'1D': 0.6, '4h': 0.4}
 
+# ===================== FUNGSI BANTU =====================
+def ensure_columns(df):
+    """
+    Memastikan dataframe memiliki kolom yang diperlukan untuk analisis teknikal.
+    Jika kolom 'Volume' tidak ada, tambahkan dengan nilai 0.
+    """
+    required = ['Open', 'High', 'Low', 'Close', 'Volume']
+    for col in required:
+        if col not in df.columns:
+            if col == 'Volume':
+                logging.warning("Kolom Volume tidak ditemukan, menambahkan dengan nilai 0.")
+                df['Volume'] = 0
+            else:
+                # Kolom harga harus ada, jika tidak maka dataframe tidak valid
+                logging.error(f"Kolom {col} tidak ditemukan! Data tidak dapat digunakan.")
+                return None
+    return df
+
 # ===================== FUNGSI LOAD DATA (LOKAL) =====================
 def load_data(pair, tf):
     filename = f"{pair}_{tf}.csv"
@@ -55,10 +73,10 @@ def add_indicators(df):
     if df is None or df.empty:
         return df
 
-    required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-    if not all(col in df.columns for col in required_cols):
-        logging.error(f"Dataframe tidak memiliki kolom yang diperlukan. Kolom yang ada: {df.columns.tolist()}")
-        return df
+    # Pastikan kolom yang diperlukan ada
+    df = ensure_columns(df)
+    if df is None:
+        return None
 
     try:
         df = add_all_ta_features(df, open="Open", high="High", low="Low",
@@ -165,6 +183,9 @@ def multi_timeframe_analysis(data_dict):
             signals[tf] = None
             continue
         df = add_indicators(df)
+        if df is None:
+            signals[tf] = None
+            continue
         buy, sell, reasons = detect_signals(df)
         signals[tf] = {
             'buy_score': buy,
@@ -301,27 +322,27 @@ def analyze_pair(pair, news_text):
     chart_data = None
     if df_entry is not None and not df_entry.empty:
         df_plot = add_indicators(df_entry.copy()).reset_index()
-        
-        def clean_series(series, decimals=5):
-            return [None if pd.isna(x) else round(x, decimals) for x in series]
-        
-        chart_data = {
-            'time': df_plot['Datetime'].dt.strftime('%Y-%m-%d %H:%M').tolist(),
-            'open': clean_series(df_plot['Open']),
-            'high': clean_series(df_plot['High']),
-            'low': clean_series(df_plot['Low']),
-            'close': clean_series(df_plot['Close']),
-            'volume': clean_series(df_plot['Volume'], decimals=0),
-            'sma20': clean_series(df_plot['sma_20']),
-            'sma50': clean_series(df_plot['sma_50']),
-            'sma200': clean_series(df_plot['sma_200']),
-            'bb_upper': clean_series(df_plot['volatility_bbh']),
-            'bb_lower': clean_series(df_plot['volatility_bbl']),
-            'rsi': clean_series(df_plot['momentum_rsi'], decimals=2),
-            'macd': clean_series(df_plot['trend_macd']),
-            'macd_signal': clean_series(df_plot['trend_macd_signal']),
-            'macd_hist': clean_series(df_plot['trend_macd_diff'])
-        }
+        if df_plot is not None:
+            def clean_series(series, decimals=5):
+                return [None if pd.isna(x) else round(x, decimals) for x in series]
+            
+            chart_data = {
+                'time': df_plot['Datetime'].dt.strftime('%Y-%m-%d %H:%M').tolist(),
+                'open': clean_series(df_plot['Open']),
+                'high': clean_series(df_plot['High']),
+                'low': clean_series(df_plot['Low']),
+                'close': clean_series(df_plot['Close']),
+                'volume': clean_series(df_plot['Volume'], decimals=0),
+                'sma20': clean_series(df_plot['sma_20']),
+                'sma50': clean_series(df_plot['sma_50']),
+                'sma200': clean_series(df_plot['sma_200']),
+                'bb_upper': clean_series(df_plot['volatility_bbh']),
+                'bb_lower': clean_series(df_plot['volatility_bbl']),
+                'rsi': clean_series(df_plot['momentum_rsi'], decimals=2),
+                'macd': clean_series(df_plot['trend_macd']),
+                'macd_signal': clean_series(df_plot['trend_macd_signal']),
+                'macd_hist': clean_series(df_plot['trend_macd_diff'])
+            }
 
     result = {
         'pair': pair,
@@ -480,9 +501,10 @@ def run_backtest_realtime(pair, interval="4h", days_back=90, min_confidence=65):
     if df is None or df.empty:
         return {"error": "Gagal mendapatkan data dari API"}
     
-    required = ['Open', 'High', 'Low', 'Close', 'Volume']
-    if not all(col in df.columns for col in required):
-        return {"error": f"Data dari API tidak memiliki kolom yang diperlukan. Kolom: {df.columns.tolist()}"}
+    # Pastikan kolom yang diperlukan ada
+    df = ensure_columns(df)
+    if df is None:
+        return {"error": "Data dari API tidak memiliki kolom yang diperlukan"}
     
     # Resample untuk mendapatkan data harian
     df_daily = df.resample('D').agg({
@@ -619,11 +641,11 @@ def get_live_prediction(pair):
     if df_4h is None or df_1d is None:
         return {"error": "Gagal mendapatkan data historis"}
     
-    required = ['Open', 'High', 'Low', 'Close', 'Volume']
-    if not all(col in df_4h.columns for col in required):
-        return {"error": f"Data 4h tidak memiliki kolom yang diperlukan. Kolom: {df_4h.columns.tolist()}"}
-    if not all(col in df_1d.columns for col in required):
-        return {"error": f"Data 1D tidak memiliki kolom yang diperlukan. Kolom: {df_1d.columns.tolist()}"}
+    # Pastikan kolom yang diperlukan ada
+    df_4h = ensure_columns(df_4h)
+    df_1d = ensure_columns(df_1d)
+    if df_4h is None or df_1d is None:
+        return {"error": "Data historis tidak memiliki kolom yang diperlukan"}
     
     data_dict = {'1D': df_1d, '4h': df_4h}
     signals = multi_timeframe_analysis(data_dict)
