@@ -266,14 +266,12 @@
             }
             
             function displayPrediction(data) {
-                // Validasi data
                 if (!data || typeof data !== 'object') {
                     errorDiv.textContent = 'Data tidak valid.';
                     errorDiv.style.display = 'block';
                     return;
                 }
 
-                // Price panel
                 document.getElementById('currentPrice').textContent = data.current_price ?? '-';
                 document.getElementById('bidPrice').textContent = data.bid ?? '-';
                 document.getElementById('askPrice').textContent = data.ask ?? '-';
@@ -281,7 +279,6 @@
                 document.getElementById('timestamp').textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '-';
                 pricePanel.style.display = 'grid';
                 
-                // Prediction panel
                 document.getElementById('pairName').textContent = data.pair ?? '-';
                 
                 const dirEl = document.getElementById('direction');
@@ -294,12 +291,10 @@
                 document.getElementById('tp').textContent = data.prediction?.tp ?? '-';
                 document.getElementById('confidence').textContent = data.prediction?.confidence ?? '-';
                 
-                // Signals
                 const signalsDiv = document.getElementById('signals');
                 signalsDiv.innerHTML = '';
                 
                 if (data.signals && Object.keys(data.signals).length > 0) {
-                    // Urutkan timeframe: 1D, 4h, 1h, 15min
                     const order = ['1D', '4h', '1h', '15min'];
                     for (const tf of order) {
                         const sig = data.signals[tf];
@@ -320,11 +315,7 @@
             }
             
             refreshBtn.addEventListener('click', fetchPrediction);
-            
-            // Auto refresh setiap 60 detik
             setInterval(fetchPrediction, 60000);
-            
-            // Fetch initial data
             fetchPrediction();
         });
     </script>
