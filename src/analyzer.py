@@ -5,6 +5,7 @@ import logging
 import pandas as pd
 import numpy as np
 from ta import add_all_ta_features
+import talib
 from datetime import datetime, timedelta
 from twelve_data import download_and_cache, get_intraday_data, get_real_time_price, get_quote
 import warnings
@@ -100,7 +101,7 @@ def detect_candlestick_patterns(df):
 
     # Daftar pola yang akan dideteksi
     pattern_list = [
-        ('Doji', ta.cdl_doji, 5, 'neutral'),
+        ('Doji', talib.CDLDOJI, 5, 'neutral'),
         ('Hammer', ta.cdl_hammer, 10, 'bullish'),
         ('Shooting Star', ta.cdl_shooting_star, 10, 'bearish'),
         ('Bullish Engulfing', ta.cdl_engulfing, 15, 'bullish'),
