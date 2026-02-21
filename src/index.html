@@ -178,8 +178,6 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM siap');
-            
             const analyzeBtn = document.getElementById('analyzeBtn');
             const loadingIndicator = document.getElementById('loadingIndicator');
             const resultDiv = document.getElementById('result');
@@ -187,13 +185,8 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
             const chartDiv = document.getElementById('chart');
 
             analyzeBtn.addEventListener('click', async function() {
-                console.log('Tombol ditekan');
-                
                 const pair = document.getElementById('pair').value;
                 const news = document.getElementById('news').value;
-                
-                console.log('Pair:', pair);
-                console.log('News:', news);
 
                 // Reset tampilan
                 resultDiv.style.display = 'none';
@@ -204,9 +197,9 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                 analyzeBtn.disabled = true;
                 loadingIndicator.style.display = 'inline-block';
 
-                // Buat AbortController untuk timeout
+                // Setup timeout 30 detik
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 30000); // timeout 30 detik
+                const timeoutId = setTimeout(() => controller.abort(), 30000);
 
                 try {
                     const response = await fetch('/analyze', {
@@ -218,10 +211,11 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                     
                     clearTimeout(timeoutId);
                     
-                    console.log('Response status:', response.status);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
                     
                     const data = await response.json();
-                    console.log('Data received:', data);
                     
                     if (data.error) {
                         errorDiv.textContent = 'Error: ' + data.error;
@@ -233,11 +227,10 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                         }
                     }
                 } catch (err) {
-                    clearTimeout(timeoutId);
-                    console.error('Fetch error:', err);
                     if (err.name === 'AbortError') {
                         errorDiv.textContent = 'Request timeout (30 detik). Server mungkin sibuk atau data terlalu besar.';
                     } else {
+                        console.error(err);
                         errorDiv.textContent = 'Gagal terhubung ke server. Pastikan server berjalan.';
                     }
                     errorDiv.style.display = 'block';
@@ -264,7 +257,6 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                 document.getElementById('fundConf').textContent = data.fundamental.confidence;
                 document.getElementById('finalConf').textContent = data.final_confidence;
 
-                // Sentimen mata uang
                 const sentimentDiv = document.getElementById('sentimentContainer');
                 sentimentDiv.innerHTML = '<strong>Sentimen Fundamental:</strong> ';
                 if (data.currency_sentiment && Object.keys(data.currency_sentiment).length > 0) {
@@ -276,7 +268,6 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                     sentimentDiv.innerHTML += '<span class="sentiment-item">Tidak ada sentimen</span>';
                 }
 
-                // Alasan teknikal
                 const reasonsDiv = document.getElementById('reasons');
                 reasonsDiv.innerHTML = '';
                 const timeframes = ['1H', '4h', '1D'];
@@ -286,7 +277,7 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                         reasonsDiv.innerHTML += `
                             <div style="margin-bottom:10px;">
                                 <strong>${tf}</strong> - Buy: ${s.buy_score} | Sell: ${s.sell_score}<br>
-                                <small>${s.reasons ? s.reasons.slice(0,3).join(', ') : ''}</small>
+                                <small>${s.reasons.slice(0,3).join(', ')}</small>
                             </div>
                         `;
                     }
@@ -298,7 +289,6 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
             function drawChart(chartData, entry, sl, tp) {
                 const times = chartData.time.map(t => new Date(t));
 
-                // Candlestick
                 const traceCandle = {
                     x: times,
                     open: chartData.open,
@@ -311,7 +301,6 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                     decreasing: { line: { color: '#f44336' } }
                 };
 
-                // SMA
                 const traceSMA20 = {
                     x: times,
                     y: chartData.sma20,
@@ -337,7 +326,6 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                     line: { color: 'red', width: 1 }
                 };
 
-                // Bollinger Bands
                 const traceBBUpper = {
                     x: times,
                     y: chartData.bb_upper,
@@ -355,7 +343,6 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                     line: { color: 'gray', width: 1, dash: 'dash' }
                 };
 
-                // RSI
                 const traceRSI = {
                     x: times,
                     y: chartData.rsi,
@@ -366,7 +353,6 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                     yaxis: 'y2'
                 };
 
-                // MACD
                 const traceMACD = {
                     x: times,
                     y: chartData.macd,
@@ -394,7 +380,6 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                     yaxis: 'y3'
                 };
 
-                // Volume
                 const traceVolume = {
                     x: times,
                     y: chartData.volume,
@@ -404,7 +389,6 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                     yaxis: 'y4'
                 };
 
-                // Garis entry, SL, TP
                 const shapes = [];
                 const annotations = [];
                 if (entry) {
