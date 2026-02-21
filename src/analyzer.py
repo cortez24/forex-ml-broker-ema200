@@ -41,18 +41,29 @@ def download_data(pair):
     end = datetime.now()
     start = end - timedelta(days=730)
 
-    df = yf.download(yahoo_symbol, start=start, end=end, interval="4h")
+    df = yf.download(
+        yahoo_symbol,
+        start=start,
+        end=end,
+        interval="4h",
+        auto_adjust=True
+    )
 
     if df.empty:
         raise ValueError("Pair tidak valid atau tidak ada data")
 
+    # FIX MultiIndex columns
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
     df.reset_index(inplace=True)
-    df.columns = [c.lower() for c in df.columns]
+
+    # rename to lowercase
+    df.columns = [str(c).lower() for c in df.columns]
 
     df.to_csv(data_file(pair), index=False)
 
     return True
-
 
 # =========================
 # INDICATORS
