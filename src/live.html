@@ -233,13 +233,21 @@
                 loadingIndicator.style.display = 'inline-block';
                 
                 try {
+                    console.log('Mengirim request untuk pair:', pair);
                     const response = await fetch('/api/live-prediction', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ pair })
                     });
                     
+                    console.log('Response status:', response.status);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
                     const data = await response.json();
+                    console.log('Data diterima:', data);
                     
                     if (data.error) {
                         errorDiv.textContent = 'Error: ' + data.error;
@@ -248,7 +256,8 @@
                         displayPrediction(data);
                     }
                 } catch (err) {
-                    errorDiv.textContent = 'Gagal terhubung ke server.';
+                    console.error('Fetch error:', err);
+                    errorDiv.textContent = 'Gagal terhubung ke server. Pastikan server berjalan.';
                     errorDiv.style.display = 'block';
                 } finally {
                     refreshBtn.disabled = false;
@@ -257,37 +266,49 @@
             }
             
             function displayPrediction(data) {
+                // Validasi data
+                if (!data || typeof data !== 'object') {
+                    errorDiv.textContent = 'Data tidak valid.';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+
                 // Price panel
-                document.getElementById('currentPrice').textContent = data.current_price;
-                document.getElementById('bidPrice').textContent = data.bid;
-                document.getElementById('askPrice').textContent = data.ask;
-                document.getElementById('atr').textContent = data.prediction.atr;
-                document.getElementById('timestamp').textContent = new Date(data.timestamp).toLocaleTimeString();
+                document.getElementById('currentPrice').textContent = data.current_price ?? '-';
+                document.getElementById('bidPrice').textContent = data.bid ?? '-';
+                document.getElementById('askPrice').textContent = data.ask ?? '-';
+                document.getElementById('atr').textContent = data.prediction?.atr ?? '-';
+                document.getElementById('timestamp').textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '-';
                 pricePanel.style.display = 'grid';
                 
                 // Prediction panel
-                document.getElementById('pairName').textContent = data.pair;
+                document.getElementById('pairName').textContent = data.pair ?? '-';
                 
                 const dirEl = document.getElementById('direction');
-                dirEl.textContent = `PREDIKSI: ${data.prediction.direction}`;
-                dirEl.className = `direction ${data.prediction.direction.toLowerCase()}`;
+                const direction = data.prediction?.direction || 'NEUTRAL';
+                dirEl.textContent = `PREDIKSI: ${direction}`;
+                dirEl.className = `direction ${direction.toLowerCase()}`;
                 
-                document.getElementById('entry').textContent = data.prediction.entry || '-';
-                document.getElementById('sl').textContent = data.prediction.sl || '-';
-                document.getElementById('tp').textContent = data.prediction.tp || '-';
-                document.getElementById('confidence').textContent = data.prediction.confidence;
+                document.getElementById('entry').textContent = data.prediction?.entry ?? '-';
+                document.getElementById('sl').textContent = data.prediction?.sl ?? '-';
+                document.getElementById('tp').textContent = data.prediction?.tp ?? '-';
+                document.getElementById('confidence').textContent = data.prediction?.confidence ?? '-';
                 
                 // Signals
                 const signalsDiv = document.getElementById('signals');
                 signalsDiv.innerHTML = '';
                 
-                for (const [tf, sig] of Object.entries(data.signals)) {
-                    signalsDiv.innerHTML += `
-                        <div style="margin-bottom:10px;">
-                            <strong>${tf}</strong> - Buy: ${sig.buy_score} | Sell: ${sig.sell_score}<br>
-                            <small>${sig.reasons.slice(0,3).join(', ')}</small>
-                        </div>
-                    `;
+                if (data.signals && Object.keys(data.signals).length > 0) {
+                    for (const [tf, sig] of Object.entries(data.signals)) {
+                        signalsDiv.innerHTML += `
+                            <div style="margin-bottom:10px;">
+                                <strong>${tf}</strong> - Buy: ${sig.buy_score ?? 0} | Sell: ${sig.sell_score ?? 0}<br>
+                                <small>${sig.reasons ? sig.reasons.slice(0,3).join(', ') : ''}</small>
+                            </div>
+                        `;
+                    }
+                } else {
+                    signalsDiv.innerHTML = '<p>Tidak ada sinyal.</p>';
                 }
                 
                 predictionPanel.style.display = 'block';
