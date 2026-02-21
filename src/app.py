@@ -2,6 +2,7 @@ import os
 import re
 import webbrowser
 import tempfile
+from datetime import datetime
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -12,6 +13,7 @@ warnings.filterwarnings('ignore')
 
 # ===================== KONFIGURASI =====================
 DATA_FOLDER = "python"          # folder tempat file CSV harga
+REPORT_FOLDER = "reports"       # folder untuk menyimpan laporan HTML
 PAIRS = ["EURUSD", "CHFJPY", "GBPJPY", "GBPUSD", "EURJPY"]
 TIMEFRAMES = ["1D", "4h", "1H"]
 RISK_REWARD = 1.0
@@ -310,8 +312,12 @@ def calculate_sl_tp(entry_price, atr, direction):
     return sl, tp
 
 # ===================== VISUALISASI =====================
-def plot_chart(pair, tf, df, signals, direction, entry, sl, tp):
-    """Plot candlestick chart dengan indikator dan level entry, tampilkan di browser."""
+def plot_chart(pair, tf, df, signals, direction, entry, sl, tp, save_path=None):
+    """
+    Plot candlestick chart dengan indikator dan level entry.
+    Jika save_path diberikan, simpan sebagai file HTML.
+    Mengembalikan objek figure.
+    """
     df = df.copy()
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True,
                         vertical_spacing=0.05, row_heights=[0.5, 0.2, 0.15, 0.15])
@@ -360,20 +366,124 @@ def plot_chart(pair, tf, df, signals, direction, entry, sl, tp):
                       xaxis_rangeslider_visible=False,
                       template='plotly_dark')
 
-    # Tampilkan di browser
-    try:
-        # Coba dengan metode default Plotly
-        fig.show()
-    except Exception as e:
-        # Fallback: simpan ke file HTML sementara dan buka dengan browser
-        with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as tmp:
-            fig.write_html(tmp.name)
-            webbrowser.open('file://' + tmp.name)
-        print(f"Chart disimpan sebagai {tmp.name} dan dibuka di browser.")
+    if save_path:
+        fig.write_html(save_path)
+        print(f"Chart disimpan ke {save_path}")
+    return fig
+
+# ===================== LAPORAN HTML =====================
+def generate_html_report(all_results, currency_sentiment, report_path):
+    """Membuat laporan HTML ringkasan dari semua hasil analisis."""
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Laporan Analisis Forex</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }}
+            h1 {{ color: #333; }}
+            table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: center; }}
+            th {{ background-color: #4CAF50; color: white; }}
+            tr:nth-child(even){{ background-color: #f2f2f2; }}
+            tr:hover {{ background-color: #ddd; }}
+            .buy {{ color: green; font-weight: bold; }}
+            .sell {{ color: red; font-weight: bold; }}
+            .neutral {{ color: gray; font-weight: bold; }}
+            .chart-link {{ text-decoration: none; color: #2196F3; }}
+            .chart-link:hover {{ text-decoration: underline; }}
+            .fundamental {{ margin-top: 30px; padding: 15px; background-color: #fff; border-radius: 5px; }}
+        </style>
+    </head>
+    <body>
+        <h1>Laporan Analisis Pasangan Forex</h1>
+        <p>Dibuat pada: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        
+        <div class="fundamental">
+            <h2>Sentimen Fundamental</h2>
+            <ul>
+    """
+    for curr, score in currency_sentiment.items():
+        sent_str = "Positif" if score > 0 else "Negatif" if score < 0 else "Netral"
+        html += f"<li><strong>{curr}:</strong> {sent_str} ({score:.2f})</li>"
+    html += """
+            </ul>
+        </div>
+        
+        <h2>Rekomendasi</h2>
+        <table>
+            <tr>
+                <th>Pair</th>
+                <th>Arah Final</th>
+                <th>Confidence</th>
+                <th>Teknikal</th>
+                <th>Fundamental</th>
+                <th>Harga Entry (1H)</th>
+                <th>Stop Loss</th>
+                <th>Take Profit</th>
+                <th>Chart</th>
+            </tr>
+    """
+    
+    for res in all_results:
+        pair = res['pair']
+        final_dir = res['final_dir']
+        final_conf = res['final_conf']
+        tech_dir = res['tech_dir']
+        tech_conf = res['tech_conf']
+        fund_dir = res['fund_dir']
+        fund_conf = res['fund_conf']
+        entry = res['entry_price']
+        sl = res['sl']
+        tp = res['tp']
+        chart_file = res['chart_file']
+        
+        dir_class = final_dir.lower()
+        if final_dir == "BUY":
+            dir_class = "buy"
+        elif final_dir == "SELL":
+            dir_class = "sell"
+        else:
+            dir_class = "neutral"
+        
+        html += f"""
+            <tr>
+                <td>{pair}</td>
+                <td class="{dir_class}">{final_dir}</td>
+                <td>{final_conf:.1f}%</td>
+                <td>{tech_dir} {tech_conf:.1f}%</td>
+                <td>{fund_dir} {fund_conf:.1f}%</td>
+        """
+        if entry is not None:
+            html += f"""
+                <td>{entry:.5f}</td>
+                <td>{sl:.5f}</td>
+                <td>{tp:.5f}</td>
+            """
+        else:
+            html += "<td>-</td><td>-</td><td>-</td>"
+        
+        if chart_file:
+            html += f'<td><a class="chart-link" href="{chart_file}" target="_blank">Lihat Chart</a></td>'
+        else:
+            html += "<td>-</td>"
+        
+        html += "</tr>"
+    
+    html += """
+        </table>
+        <p><em>Catatan: Rekomendasi hanya diberikan jika confidence ≥ 65%.</em></p>
+    </body>
+    </html>
+    """
+    
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write(html)
+    print(f"Laporan HTML disimpan ke {report_path}")
 
 # ===================== PANDUAN FUNDAMENTAL =====================
 def fundamental_info(pair):
-    """Menampilkan data fundamental yang perlu diperhatikan."""
+    """Menampilkan data fundamental yang perlu diperhatikan (opsional, untuk output console)."""
     info = {
         "EURUSD": "Eurozone / US: Suku bunga ECB & The Fed, NFP, CPI, PDB, PMI",
         "CHFJPY": "Swiss / Jepang: Suku bunga SNB & BoJ, CPI, PDB, Tankan, Neraca dagang",
@@ -387,6 +497,10 @@ def fundamental_info(pair):
 
 # ===================== MAIN PROGRAM =====================
 def main():
+    # Buat folder laporan jika belum ada
+    if not os.path.exists(REPORT_FOLDER):
+        os.makedirs(REPORT_FOLDER)
+    
     if not os.path.exists(DATA_FOLDER):
         print(f"Folder '{DATA_FOLDER}' tidak ditemukan. Buat folder dan tempatkan file CSV harga di dalamnya.")
         return
@@ -414,6 +528,8 @@ def main():
     else:
         currency_sentiment = {c: 0.0 for c in ['EUR','USD','GBP','JPY','CHF']}
         print("Tidak ada berita. Fundamental dianggap netral.")
+
+    all_results = []  # untuk menyimpan hasil setiap pair
 
     # Analisis untuk setiap pair
     for pair in PAIRS:
@@ -449,7 +565,7 @@ def main():
         else:
             entry_price = sl = tp = None
 
-        # Tampilkan hasil
+        # Tampilkan hasil di console
         print(f"\n=== HASIL ANALISIS GABUNGAN ===")
         print(f"Arah: {final_dir}")
         print(f"Keyakinan: {final_conf:.2f}%")
@@ -472,14 +588,41 @@ def main():
             print(f"  Harga Terakhir: {sig['last_close']:.5f}")
             print(f"  Alasan: {', '.join(sig['reasons'][:3])}")
 
-        # Plot chart 1H
+        # Simpan chart untuk pair ini
+        chart_file = None
         if df_1h is not None and not df_1h.empty:
             df_1h_plot = add_indicators(df_1h.copy())
-            plot_chart(pair, '1H', df_1h_plot, signals['1H'], final_dir, entry_price, sl, tp)
+            chart_filename = f"{pair}_1H_chart.html"
+            chart_path = os.path.join(REPORT_FOLDER, chart_filename)
+            plot_chart(pair, '1H', df_1h_plot, signals['1H'], final_dir, entry_price, sl, tp, save_path=chart_path)
+            chart_file = chart_filename  # simpan nama file untuk link relatif
+
+        # Simpan hasil untuk laporan
+        all_results.append({
+            'pair': pair,
+            'final_dir': final_dir,
+            'final_conf': final_conf,
+            'tech_dir': tech_dir,
+            'tech_conf': tech_conf,
+            'fund_dir': fund_dir,
+            'fund_conf': fund_conf,
+            'entry_price': entry_price,
+            'sl': sl,
+            'tp': tp,
+            'chart_file': chart_file
+        })
 
         fundamental_info(pair)
+        # Tidak perlu input enter di sini karena kita akan buka laporan di akhir
 
-        input("\nTekan Enter untuk melanjutkan ke pair berikutnya...")
+    # Buat laporan HTML utama
+    report_filename = f"laporan_forex_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+    report_path = os.path.join(REPORT_FOLDER, report_filename)
+    generate_html_report(all_results, currency_sentiment, report_path)
+
+    # Buka laporan di browser
+    webbrowser.open('file://' + os.path.abspath(report_path))
+    print(f"\nLaporan telah dibuka di browser. File: {report_path}")
 
 if __name__ == "__main__":
     main()
