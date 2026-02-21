@@ -50,8 +50,8 @@ def backtest_realtime():
     try:
         data = request.get_json()
         pair = data.get('pair', 'EURUSD')
-        interval = data.get('interval', '15min')   # default M15
-        days_back = int(data.get('days_back', 30))
+        interval = data.get('interval', '15min')
+        days_back = int(data.get('days_back', 90))
         min_confidence = float(data.get('min_confidence', 65))
         result = analyzer.run_backtest_realtime(pair, interval, days_back, min_confidence)
         return jsonify(result)
@@ -68,21 +68,6 @@ def live_prediction():
         return jsonify(result)
     except Exception as e:
         logging.error(f"Error live prediction: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/market-quote', methods=['POST'])
-def market_quote():
-    try:
-        data = request.get_json()
-        pair = data.get('pair', 'EURUSD')
-        api_symbol = f"{pair[:3]}/{pair[3:]}"
-        from twelve_data import get_quote
-        quote = get_quote(api_symbol)
-        if quote:
-            return jsonify(quote)
-        else:
-            return jsonify({'error': 'Gagal mendapatkan quote'}), 500
-    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/live')
