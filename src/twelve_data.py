@@ -86,15 +86,30 @@ def get_historical_data(symbol, interval="1h", outputsize=5000, start_date=None,
             df["datetime"] = pd.to_datetime(df["datetime"])
             df.set_index("datetime", inplace=True)
             # Ubah nama kolom ke format yang kita pakai (Capitalized)
-            df.rename(columns={
+            rename_map = {
                 "open": "Open",
                 "high": "High",
                 "low": "Low",
                 "close": "Close",
                 "volume": "Volume"
-            }, inplace=True)
+            }
+            # Hanya rename kolom yang ada
+            for old, new in rename_map.items():
+                if old in df.columns:
+                    df.rename(columns={old: new}, inplace=True)
+            
+            # Pastikan kolom Open, High, Low, Close ada
+            required = ['Open', 'High', 'Low', 'Close']
+            if not all(col in df.columns for col in required):
+                logging.error(f"Data dari API tidak memiliki kolom OHLC. Kolom: {df.columns.tolist()}")
+                return None
+            
+            # Jika Volume tidak ada, tambahkan dengan nilai 0
+            if 'Volume' not in df.columns:
+                df['Volume'] = 0
+            
             # Konversi ke numeric
-            for col in ["Open", "High", "Low", "Close", "Volume"]:
+            for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
             df.dropna(inplace=True)
             return df
@@ -119,6 +134,9 @@ def download_and_cache(symbol, interval, output_folder="data/api"):
             df = pd.read_csv(filepath, index_col=0, parse_dates=True)
             # Pastikan kolom berformat Title Case (Open, High, dll)
             df.columns = [col.capitalize() for col in df.columns]
+            # Jika Volume tidak ada, tambahkan
+            if 'Volume' not in df.columns:
+                df['Volume'] = 0
             return df
 
     logging.info(f"Downloading {symbol} {interval}...")
