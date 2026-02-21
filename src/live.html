@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Prediction - Forex Analyzer</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e1e;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #4CAF50;
+            text-align: center;
+        }
+        .nav {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        .nav a {
+            color: #e0e0e0;
+            text-decoration: none;
+            padding: 8px 16px;
+            background: #2d2d2d;
+            border-radius: 4px;
+        }
+        .nav a:hover {
+            background: #3d3d3d;
+        }
+        .nav a.active {
+            background: #4CAF50;
+            color: white;
+        }
+        .control-panel {
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        select, button {
+            background: #3d3d3d;
+            color: #e0e0e0;
+            border: 1px solid #555;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .price-panel {
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .price-item {
+            background: #3d3d3d;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .price-label {
+            color: #aaa;
+            font-size: 14px;
+        }
+        .price-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        .bid { color: #4CAF50; }
+        .ask { color: #f44336; }
+        .prediction {
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .direction {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .buy { color: #4CAF50; }
+        .sell { color: #f44336; }
+        .neutral { color: #ff9800; }
+        .levels {
+            display: flex;
+            gap: 30px;
+            margin: 15px 0;
+            font-size: 18px;
+        }
+        .level-item {
+            background: #3d3d3d;
+            padding: 10px 15px;
+            border-radius: 4px;
+        }
+        .level-item span {
+            color: #aaa;
+            margin-right: 10px;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #4CAF50;
+            animation: spin 1s ease-in-out infinite;
+            margin-left: 10px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .error {
+            color: #f44336;
+            background: #3d3d3d;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📈 Forex Analyzer Pro - Live Prediction</h1>
+        
+        <div class="nav">
+            <a href="/">Analisis Teknikal</a>
+            <a href="/backtest">Backtest</a>
+            <a href="/live" class="active">Live Prediction</a>
+        </div>
+        
+        <div class="control-panel">
+            <select id="pair">
+                <option value="EURUSD">EUR/USD</option>
+                <option value="GBPUSD">GBP/USD</option>
+                <option value="EURJPY">EUR/JPY</option>
+                <option value="GBPJPY">GBP/JPY</option>
+                <option value="CHFJPY">CHF/JPY</option>
+            </select>
+            
+            <button id="refreshBtn">Refresh Sekarang</button>
+            <div id="loadingIndicator" class="loading" style="display: none;"></div>
+        </div>
+        
+        <div id="pricePanel" class="price-panel" style="display: none;">
+            <div class="price-item">
+                <div class="price-label">Current Price</div>
+                <div class="price-value" id="currentPrice">-</div>
+            </div>
+            <div class="price-item">
+                <div class="price-label">Bid</div>
+                <div class="price-value bid" id="bidPrice">-</div>
+            </div>
+            <div class="price-item">
+                <div class="price-label">Ask</div>
+                <div class="price-value ask" id="askPrice">-</div>
+            </div>
+            <div class="price-item">
+                <div class="price-label">ATR (4H)</div>
+                <div class="price-value" id="atr">-</div>
+            </div>
+            <div class="price-item">
+                <div class="price-label">Last Updated</div>
+                <div class="price-value" id="timestamp">-</div>
+            </div>
+        </div>
+        
+        <div id="predictionPanel" class="prediction" style="display: none;">
+            <h2>Prediksi untuk <span id="pairName"></span></h2>
+            <div id="direction" class="direction"></div>
+            
+            <div class="levels">
+                <div class="level-item"><span>Entry:</span> <span id="entry"></span></div>
+                <div class="level-item"><span>Stop Loss:</span> <span id="sl"></span></div>
+                <div class="level-item"><span>Take Profit:</span> <span id="tp"></span></div>
+            </div>
+            
+            <div style="margin: 10px 0;">
+                <strong>Keyakinan:</strong> <span id="confidence"></span>%
+            </div>
+            
+            <div id="reasons" style="margin-top: 15px;">
+                <h3>Analisis Teknikal</h3>
+                <div id="signals"></div>
+            </div>
+        </div>
+        
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const refreshBtn = document.getElementById('refreshBtn');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const pricePanel = document.getElementById('pricePanel');
+            const predictionPanel = document.getElementById('predictionPanel');
+            const errorDiv = document.getElementById('error');
+            
+            async function fetchPrediction() {
+                const pair = document.getElementById('pair').value;
+                
+                pricePanel.style.display = 'none';
+                predictionPanel.style.display = 'none';
+                errorDiv.style.display = 'none';
+                
+                refreshBtn.disabled = true;
+                loadingIndicator.style.display = 'inline-block';
+                
+                try {
+                    const response = await fetch('/api/live-prediction', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ pair })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        errorDiv.textContent = 'Error: ' + data.error;
+                        errorDiv.style.display = 'block';
+                    } else {
+                        displayPrediction(data);
+                    }
+                } catch (err) {
+                    errorDiv.textContent = 'Gagal terhubung ke server.';
+                    errorDiv.style.display = 'block';
+                } finally {
+                    refreshBtn.disabled = false;
+                    loadingIndicator.style.display = 'none';
+                }
+            }
+            
+            function displayPrediction(data) {
+                // Price panel
+                document.getElementById('currentPrice').textContent = data.current_price;
+                document.getElementById('bidPrice').textContent = data.bid;
+                document.getElementById('askPrice').textContent = data.ask;
+                document.getElementById('atr').textContent = data.prediction.atr;
+                document.getElementById('timestamp').textContent = new Date(data.timestamp).toLocaleTimeString();
+                pricePanel.style.display = 'grid';
+                
+                // Prediction panel
+                document.getElementById('pairName').textContent = data.pair;
+                
+                const dirEl = document.getElementById('direction');
+                dirEl.textContent = `PREDIKSI: ${data.prediction.direction}`;
+                dirEl.className = `direction ${data.prediction.direction.toLowerCase()}`;
+                
+                document.getElementById('entry').textContent = data.prediction.entry || '-';
+                document.getElementById('sl').textContent = data.prediction.sl || '-';
+                document.getElementById('tp').textContent = data.prediction.tp || '-';
+                document.getElementById('confidence').textContent = data.prediction.confidence;
+                
+                // Signals
+                const signalsDiv = document.getElementById('signals');
+                signalsDiv.innerHTML = '';
+                
+                for (const [tf, sig] of Object.entries(data.signals)) {
+                    signalsDiv.innerHTML += `
+                        <div style="margin-bottom:10px;">
+                            <strong>${tf}</strong> - Buy: ${sig.buy_score} | Sell: ${sig.sell_score}<br>
+                            <small>${sig.reasons.slice(0,3).join(', ')}</small>
+                        </div>
+                    `;
+                }
+                
+                predictionPanel.style.display = 'block';
+            }
+            
+            refreshBtn.addEventListener('click', fetchPrediction);
+            
+            // Auto refresh setiap 60 detik
+            setInterval(fetchPrediction, 60000);
+            
+            // Fetch initial data
+            fetchPrediction();
+        });
+    </script>
+</body>
+</html>
