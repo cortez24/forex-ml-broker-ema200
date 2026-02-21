@@ -1,237 +1,186 @@
+import os
 import pandas as pd
 import numpy as np
-import os
 import yfinance as yf
-import pickle
-from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
+import joblib
 
-# =====================================================
-# CONFIG
-# =====================================================
+DATA_FOLDER = "data"
+MODEL_FOLDER = "models"
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FOLDER = os.path.join(BASE_DIR, "data")
-MODEL_FILE = os.path.join(BASE_DIR, "ml_model.pkl")
+os.makedirs(DATA_FOLDER, exist_ok=True)
+os.makedirs(MODEL_FOLDER, exist_ok=True)
 
-if not os.path.exists(DATA_FOLDER):
-    os.makedirs(DATA_FOLDER)
 
-# =====================================================
-# SMART CSV LOADER (AUTO DETECT FORMAT)
-# =====================================================
+# ===============================
+# UTIL
+# ===============================
 
-def load_price_file(filename):
-
-    # auto detect separator
-    df = pd.read_csv(filename, sep=None, engine="python")
-
-    # jika cuma 1 kolom → coba whitespace
-    if df.shape[1] == 1:
-        df = pd.read_csv(filename, delim_whitespace=True)
-
-    # jika masih 1 kolom → file rusak
-    if df.shape[1] < 6:
-        raise Exception("Format CSV salah. Harus 6 kolom.")
-
-    # jika tidak ada header close → berarti tanpa header
-    if "close" not in df.columns:
-        df = pd.read_csv(filename, sep=None, engine="python", header=None)
-
-        if df.shape[1] == 1:
-            df = pd.read_csv(filename, delim_whitespace=True, header=None)
-
-        df.columns = ["datetime","open","high","low","close","volume"]
-
-    df.columns = df.columns.str.lower()
-
-    numeric_cols = ["open","high","low","close","volume"]
-
-    for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    df.dropna(inplace=True)
-
-    return df
-
-# =====================================================
-# DOWNLOAD DATA FROM YAHOO
-# =====================================================
-
-def download_data(pair, interval="1h", period="180d"):
-
+def normalize_pair(pair):
     if not pair:
         raise ValueError("Pair kosong")
 
-    pair = pair.upper().replace("_1H","").replace("_1h","")
+    pair = pair.upper()
+    pair = pair.replace("_1H", "")
+    pair = pair.replace("=X", "")
+    pair = pair.replace("=F", "")
 
-    symbol_map = {
-        "EURUSD": "EURUSD=X",
-        "GBPUSD": "GBPUSD=X",
-        "USDJPY": "USDJPY=X",
-        "XAUUSD": "GC=F"
-    }
+    return pair
 
-    if pair.endswith("=X") or pair.endswith("=F"):
-        symbol = pair
-    else:
-        symbol = symbol_map.get(pair)
 
-    if not symbol:
-        raise ValueError(f"Pair {pair} tidak didukung")
+def get_yahoo_symbol(pair):
+    pair = normalize_pair(pair)
+
+    # Gold
+    if pair == "XAUUSD":
+        return "GC=F"
+
+    # Semua forex otomatis
+    return pair + "=X"
+
+
+def get_filename(pair, interval="1h"):
+    pair = normalize_pair(pair)
+    return os.path.join(DATA_FOLDER, f"{pair}_{interval}.csv")
+
+
+# ===============================
+# DOWNLOAD
+# ===============================
+
+def download_data(pair, interval="1h", period="180d"):
+    pair = normalize_pair(pair)
+    symbol = get_yahoo_symbol(pair)
 
     print("Downloading:", symbol)
 
     df = yf.download(symbol, interval=interval, period=period)
 
     if df.empty:
-        raise Exception("Download gagal dari Yahoo")
+        raise Exception("Download gagal dari Yahoo Finance")
 
     df = df.rename(columns=str.lower)
     df.reset_index(inplace=True)
 
-    filename = os.path.join(DATA_FOLDER, f"{pair}_{interval}.csv")
+    filename = get_filename(pair, interval)
     df.to_csv(filename, index=False)
 
+    print("Saved to:", filename)
     return filename
 
-# =====================================================
+
+# ===============================
+# LOAD FILE
+# ===============================
+
+def load_price_file(filename):
+    if not os.path.exists(filename):
+        raise Exception("File tidak ditemukan")
+
+    df = pd.read_csv(filename)
+
+    required_cols = ['open','high','low','close','volume']
+    for col in required_cols:
+        if col not in df.columns:
+            raise Exception(f"Kolom {col} tidak ditemukan")
+
+    for col in required_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df.dropna(inplace=True)
+    return df
+
+
+# ===============================
 # INDICATORS
-# =====================================================
+# ===============================
 
 def add_indicators(df):
-
     df['ema50'] = df['close'].ewm(span=50).mean()
     df['ema200'] = df['close'].ewm(span=200).mean()
 
-    delta = df['close'].diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-
-    avg_gain = gain.rolling(14).mean()
-    avg_loss = loss.rolling(14).mean()
-
-    rs = avg_gain / avg_loss
-    df['rsi'] = 100 - (100 / (1 + rs))
-
-    exp1 = df['close'].ewm(span=12).mean()
-    exp2 = df['close'].ewm(span=26).mean()
-
-    df['macd'] = exp1 - exp2
-    df['macd_signal'] = df['macd'].ewm(span=9).mean()
+    df['rsi'] = compute_rsi(df['close'], 14)
 
     df.dropna(inplace=True)
-
     return df
 
-# =====================================================
+
+def compute_rsi(series, period=14):
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
+
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+
+# ===============================
 # BACKTEST
-# =====================================================
+# ===============================
 
 def backtest(pair):
-
-    pair = pair.upper()
-    filename = os.path.join(DATA_FOLDER, f"{pair}_1h.csv")
-
-    if not os.path.exists(filename):
-        raise Exception("File data tidak ditemukan")
+    filename = get_filename(pair)
 
     df = load_price_file(filename)
     df = add_indicators(df)
 
-    balance = 10000
-    wins = 0
-    losses = 0
+    df['signal'] = np.where(df['ema50'] > df['ema200'], 1, -1)
+    df['returns'] = df['close'].pct_change()
+    df['strategy'] = df['signal'].shift(1) * df['returns']
 
-    for i in range(50, len(df)-1):
+    total_return = df['strategy'].sum()
 
-        entry = df.iloc[i]['close']
-        next_close = df.iloc[i+1]['close']
+    return {"total_return": float(total_return)}
 
-        if df.iloc[i]['ema50'] > df.iloc[i]['ema200']:
-            signal = 1
-        else:
-            signal = -1
 
-        if signal == 1 and next_close > entry:
-            wins += 1
-            balance *= 1.01
-        elif signal == -1 and next_close < entry:
-            wins += 1
-            balance *= 1.01
-        else:
-            losses += 1
-            balance *= 0.99
-
-    total = wins + losses
-    winrate = (wins / total * 100) if total > 0 else 0
-
-    return {
-        "balance": round(balance,2),
-        "wins": wins,
-        "losses": losses,
-        "winrate": round(winrate,2)
-    }
-
-# =====================================================
-# MACHINE LEARNING TRAIN
-# =====================================================
+# ===============================
+# MACHINE LEARNING
+# ===============================
 
 def train_ml(pair):
-
-    pair = pair.upper()
-    filename = os.path.join(DATA_FOLDER, f"{pair}_1h.csv")
-
-    if not os.path.exists(filename):
-        raise Exception("File data tidak ditemukan")
+    filename = get_filename(pair)
 
     df = load_price_file(filename)
     df = add_indicators(df)
 
-    df['future'] = df['close'].shift(-1)
-    df['target'] = (df['future'] > df['close']).astype(int)
-
+    df['target'] = np.where(df['close'].shift(-1) > df['close'], 1, 0)
     df.dropna(inplace=True)
 
-    features = df[['ema50','ema200','rsi','macd']]
+    features = df[['ema50','ema200','rsi']]
     target = df['target']
 
     X_train, X_test, y_train, y_test = train_test_split(
-        features, target, test_size=0.2, random_state=42
+        features, target, test_size=0.2, shuffle=False
     )
 
-    model = LogisticRegression(max_iter=3000)
+    model = RandomForestClassifier()
     model.fit(X_train, y_train)
 
     preds = model.predict(X_test)
     acc = accuracy_score(y_test, preds)
 
-    pickle.dump(model, open(MODEL_FILE,"wb"))
+    model_file = os.path.join(MODEL_FOLDER, f"{normalize_pair(pair)}.pkl")
+    joblib.dump(model, model_file)
 
-    return round(acc*100,2)
+    return float(acc)
 
-# =====================================================
-# MACHINE LEARNING PREDICT
-# =====================================================
 
 def ml_predict(pair):
+    filename = get_filename(pair)
+    model_file = os.path.join(MODEL_FOLDER, f"{normalize_pair(pair)}.pkl")
 
-    if not os.path.exists(MODEL_FILE):
-        raise Exception("Model belum di-train")
-
-    pair = pair.upper()
-    filename = os.path.join(DATA_FOLDER, f"{pair}_1h.csv")
-
-    if not os.path.exists(filename):
-        raise Exception("File data tidak ditemukan")
+    if not os.path.exists(model_file):
+        raise Exception("Model belum dilatih")
 
     df = load_price_file(filename)
     df = add_indicators(df)
 
-    model = pickle.load(open(MODEL_FILE,"rb"))
+    latest = df[['ema50','ema200','rsi']].iloc[-1:]
 
-    latest = df[['ema50','ema200','rsi','macd']].iloc[-1:]
+    model = joblib.load(model_file)
     prob = model.predict_proba(latest)[0][1]
 
-    return round(prob*100,2)
+    return float(prob)
