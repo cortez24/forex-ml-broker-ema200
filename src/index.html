@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forex Analyzer Pro</title>
+    <title>Forex Analyzer Pro - Analisis Teknikal</title>
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <style>
         body {
@@ -20,6 +20,26 @@
         h1 {
             color: #4CAF50;
             text-align: center;
+        }
+        .nav {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        .nav a {
+            color: #e0e0e0;
+            text-decoration: none;
+            padding: 8px 16px;
+            background: #2d2d2d;
+            border-radius: 4px;
+        }
+        .nav a:hover {
+            background: #3d3d3d;
+        }
+        .nav a.active {
+            background: #4CAF50;
+            color: white;
         }
         .input-panel {
             background: #2d2d2d;
@@ -130,7 +150,13 @@
 </head>
 <body>
     <div class="container">
-        <h1>📊 Forex Analyzer Pro</h1>
+        <h1>📊 Forex Analyzer Pro - Analisis Teknikal</h1>
+        
+        <div class="nav">
+            <a href="/" class="active">Analisis Teknikal</a>
+            <a href="/backtest">Backtest</a>
+            <a href="/live">Live Prediction</a>
+        </div>
         
         <div class="input-panel">
             <select id="pair">
@@ -213,6 +239,7 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                     }
                     
                     const data = await response.json();
+                    console.log('Data received:', data);
                     
                     if (data.error) {
                         errorDiv.textContent = 'Error: ' + data.error;
@@ -221,6 +248,8 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                         displayResults(data);
                         if (data.chart_data) {
                             drawChart(data.chart_data, data.entry, data.sl, data.tp);
+                        } else {
+                            chartDiv.innerHTML = '<p style="color: #aaa;">Data chart tidak tersedia.</p>';
                         }
                     }
                 } catch (err) {
@@ -268,13 +297,14 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                 const reasonsDiv = document.getElementById('reasons');
                 reasonsDiv.innerHTML = '';
                 if (data.signals) {
-                    for (const tf in data.signals) {
+                    const timeframes = ['1D', '4h', '1h', '15min'];
+                    for (const tf of timeframes) {
                         const s = data.signals[tf];
                         if (s) {
                             reasonsDiv.innerHTML += `
                                 <div style="margin-bottom:10px;">
                                     <strong>${tf}</strong> - Buy: ${s.buy_score} | Sell: ${s.sell_score}<br>
-                                    <small>${s.reasons.slice(0,3).join(', ')}</small>
+                                    <small>${s.reasons ? s.reasons.slice(0,3).join(', ') : ''}</small>
                                 </div>
                             `;
                         }
@@ -451,7 +481,7 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                 }
 
                 const layout = {
-                    title: 'Analisis Teknikal (4H)',
+                    title: 'Analisis Teknikal (1H)',
                     xaxis: { rangeslider: { visible: false } },
                     yaxis: { domain: [0.45, 1] },
                     yaxis2: { domain: [0.3, 0.4], title: 'RSI' },
