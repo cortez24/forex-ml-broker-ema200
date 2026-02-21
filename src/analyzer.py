@@ -5,6 +5,7 @@ import logging
 import pandas as pd
 import numpy as np
 from ta import add_all_ta_features
+import pandas_ta as ta
 from datetime import datetime, timedelta
 from twelve_data import download_and_cache, get_intraday_data, get_real_time_price, get_quote
 import warnings
@@ -88,13 +89,58 @@ def add_indicators(df):
         logging.error(f"Error saat menambah indikator: {e}")
     return df
 
+# ===================== DETEKSI POLA CANDLESTICK =====================
+def detect_candlestick_patterns(df):
+    """
+    Mendeteksi pola candlestick pada baris terakhir dataframe menggunakan pandas_ta.
+    Mengembalikan tuple (buy_score, sell_score, list pola yang terdeteksi).
+    """
+    buy_score = 0
+    sell_score = 0
+    patterns_detected = []
+
+    # Daftar pola yang akan dideteksi
+    pattern_list = [
+        ('Doji', ta.cdl_doji, 5, 'neutral'),
+        ('Hammer', ta.cdl_hammer, 10, 'bullish'),
+        ('Shooting Star', ta.cdl_shooting_star, 10, 'bearish'),
+        ('Bullish Engulfing', ta.cdl_engulfing, 15, 'bullish'),
+        ('Bearish Engulfing', ta.cdl_engulfing, 15, 'bearish'),
+        ('Bullish Harami', ta.cdl_harami, 10, 'bullish'),
+        ('Bearish Harami', ta.cdl_harami, 10, 'bearish'),
+        ('Morning Star', ta.cdl_morning_star, 20, 'bullish'),
+        ('Evening Star', ta.cdl_evening_star, 20, 'bearish'),
+        ('Piercing Line', ta.cdl_piercing, 15, 'bullish'),
+        ('Dark Cloud Cover', ta.cdl_dark_cloud_cover, 15, 'bearish'),
+    ]
+
+    for name, func, weight, pattern_type in pattern_list:
+        try:
+            # Fungsi pandas_ta mengembalikan Series dengan nilai 100, -100, atau 0
+            result = func(df['Open'], df['High'], df['Low'], df['Close'])
+            if result is not None and len(result) > 0:
+                last_val = result.iloc[-1]
+                if last_val != 0:
+                    if pattern_type == 'bullish' and last_val > 0:
+                        buy_score += weight
+                        patterns_detected.append(name)
+                    elif pattern_type == 'bearish' and last_val < 0:
+                        sell_score += weight
+                        patterns_detected.append(name)
+                    # netral diabaikan
+        except Exception as e:
+            logging.debug(f"Error detecting pattern {name}: {e}")
+            continue
+
+    return buy_score, sell_score, patterns_detected
+
 # ===================== DETEKSI SINYAL =====================
 def detect_signals(df):
     if df is None or df.empty:
         return 0, 0, ["Data tidak cukup"]
 
     last = df.iloc[-1]
-    buy_score = 0
+    buy_score = 0      # skor mentah dari indikator (maks 70)
     sell_score = 0
     reasons = []
 
@@ -164,11 +210,19 @@ def detect_signals(df):
             sell_score += 10
             reasons.append("Mendekati level resistance")
 
-    max_score = 70
-    buy_score = min(100, (buy_score / max_score) * 100)
-    sell_score = min(100, (sell_score / max_score) * 100)
+    # --- Pola Candlestick ---
+    pattern_buy, pattern_sell, patterns = detect_candlestick_patterns(df)
+    buy_score += pattern_buy
+    sell_score += pattern_sell
+    if patterns:
+        reasons.append(f"Pola: {', '.join(patterns)}")
 
-    return buy_score, sell_score, reasons
+    # Normalisasi dengan max_score = 70 (indikator) + 20 (pola) = 90
+    max_score = 90
+    buy_score_norm = min(100, (buy_score / max_score) * 100)
+    sell_score_norm = min(100, (sell_score / max_score) * 100)
+
+    return buy_score_norm, sell_score_norm, reasons
 
 # ===================== ANALISIS MULTI-TIMEFRAME =====================
 def multi_timeframe_analysis(data_dict):
@@ -369,7 +423,7 @@ def analyze_pair(pair, news_text):
     }
     return result
 
-# ===================== BACKTEST LOKAL (DIPERBAIKI) =====================
+# ===================== BACKTEST LOKAL =====================
 def run_backtest(pair, start_date, end_date, min_confidence=65, max_hold_candles=20):
     """
     Menjalankan backtest menggunakan data lokal 1D dan 4h.
