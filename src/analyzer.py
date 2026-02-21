@@ -92,7 +92,6 @@ def add_indicators(df):
 # ===================== DETEKSI POLA CANDLESTICK =====================
 def detect_candlestick_patterns(df):
     return False, False, []
-
 # ===================== DETEKSI SINYAL =====================
 def detect_signals(df):
     if df is None or df.empty:
