@@ -1,52 +1,203 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>AI Trading Lab</title>
-<style>
-body{background:#0f172a;color:white;font-family:Arial;padding:40px}
-button{padding:10px;margin:5px}
-.card{background:#1e293b;padding:20px;margin-top:20px;border-radius:10px}
-</style>
+    <title>Institutional Trading Engine</title>
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #e2e8f0;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        header {
+            background-color: #111827;
+            padding: 20px;
+            font-size: 22px;
+            font-weight: bold;
+            text-align: center;
+            border-bottom: 1px solid #1f2937;
+        }
+
+        .container {
+            padding: 30px;
+        }
+
+        .controls {
+            margin-bottom: 25px;
+        }
+
+        input {
+            padding: 8px;
+            width: 200px;
+            background-color: #1e293b;
+            border: 1px solid #334155;
+            color: white;
+        }
+
+        button {
+            padding: 8px 15px;
+            margin-right: 10px;
+            background-color: #2563eb;
+            border: none;
+            color: white;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #1d4ed8;
+        }
+
+        .panel {
+            background-color: #111827;
+            padding: 20px;
+            margin-top: 20px;
+            border-radius: 5px;
+            border: 1px solid #1f2937;
+        }
+
+        .metric {
+            margin-bottom: 8px;
+        }
+
+        img {
+            margin-top: 20px;
+            border: 1px solid #1f2937;
+        }
+
+        .signal-box {
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .buy { color: #22c55e; }
+        .sell { color: #ef4444; }
+        .neutral { color: #facc15; }
+
+    </style>
 </head>
+
 <body>
 
-<h1>🚀 AI Trading Lab</h1>
+<header>
+    Institutional Hybrid Trading Engine – 4H Timeframe
+</header>
 
-<input id="pair" placeholder="EURUSD">
+<div class="container">
 
-<button onclick="download()">Download Data</button>
-<button onclick="backtest()">Backtest</button>
-<button onclick="train()">Train ML</button>
-<button onclick="predict()">ML Predict</button>
+    <div class="controls">
+        Pair:
+        <input type="text" id="pair" value="GBPJPY">
+        <button onclick="download()">Download Data</button>
+        <button onclick="signal()">Generate Signal</button>
+        <button onclick="performance()">Performance</button>
+        <button onclick="equity()">Equity Curve</button>
+    </div>
 
-<div class="card">
-<pre id="output"></pre>
+    <div class="panel" id="signalPanel">
+        <div class="signal-box" id="signalResult">No signal yet</div>
+        <div id="signalDetails"></div>
+    </div>
+
+    <div class="panel" id="performancePanel">
+        <h3>Performance Metrics</h3>
+        <div id="metrics"></div>
+    </div>
+
+    <div class="panel">
+        <h3>Equity Curve</h3>
+        <img id="chart" width="900">
+    </div>
+
 </div>
 
 <script>
+
 function getPair(){
     return document.getElementById("pair").value;
 }
 
 function download(){
-fetch("/download",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pair:getPair()})})
-.then(r=>r.json()).then(d=>document.getElementById("output").innerText=JSON.stringify(d,null,2))
+    fetch("/download",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({pair:getPair()})
+    })
+    .then(res=>res.json())
+    .then(data=>{
+        alert("Data Downloaded Successfully");
+    });
 }
 
-function backtest(){
-fetch("/backtest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pair:getPair()})})
-.then(r=>r.json()).then(d=>document.getElementById("output").innerText=JSON.stringify(d,null,2))
+function signal(){
+    fetch("/signal",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({pair:getPair()})
+    })
+    .then(res=>res.json())
+    .then(data=>{
+
+        let signalBox = document.getElementById("signalResult");
+        let detailBox = document.getElementById("signalDetails");
+
+        if(data.signal === "BUY"){
+            signalBox.className = "signal-box buy";
+        } else if(data.signal === "SELL"){
+            signalBox.className = "signal-box sell";
+        } else {
+            signalBox.className = "signal-box neutral";
+        }
+
+        signalBox.innerHTML = "Signal: " + data.signal;
+
+        detailBox.innerHTML = `
+            Confidence: ${data.confidence || "-"}% <br>
+            Entry: ${data.entry || "-"} <br>
+            SL: ${data.sl || "-"} <br>
+            TP1: ${data.tp1 || "-"} <br>
+            TP2: ${data.tp2 || "-"}
+        `;
+    });
 }
 
-function train(){
-fetch("/train",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pair:getPair()})})
-.then(r=>r.json()).then(d=>document.getElementById("output").innerText=JSON.stringify(d,null,2))
+function performance(){
+    fetch("/performance",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({pair:getPair()})
+    })
+    .then(res=>res.json())
+    .then(data=>{
+
+        if(data.error){
+            alert(data.error);
+            return;
+        }
+
+        let m = data.metrics;
+
+        document.getElementById("metrics").innerHTML = `
+            <div class="metric">Total Trades: ${m.total_trades}</div>
+            <div class="metric">Winrate: ${m.winrate}%</div>
+            <div class="metric">Sharpe Ratio: ${m.sharpe}</div>
+        `;
+    });
 }
 
-function predict(){
-fetch("/predict",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pair:getPair()})})
-.then(r=>r.json()).then(d=>document.getElementById("output").innerText=JSON.stringify(d,null,2))
+function equity(){
+    fetch("/equity_chart",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({pair:getPair()})
+    })
+    .then(response => response.blob())
+    .then(blob=>{
+        document.getElementById("chart").src = URL.createObjectURL(blob);
+    });
 }
+
 </script>
 
 </body>
