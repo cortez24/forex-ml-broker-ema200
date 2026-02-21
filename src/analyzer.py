@@ -5,25 +5,23 @@ import logging
 import pandas as pd
 import numpy as np
 from ta import add_all_ta_features
+from datetime import datetime, timedelta
+from twelve_data import download_and_cache, get_intraday_data, get_real_time_price, get_quote
 import warnings
 warnings.filterwarnings('ignore')
 
-# Konfigurasi logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ===================== KONFIGURASI =====================
 DATA_FOLDER = os.path.join(os.path.dirname(__file__), 'data')
-TIMEFRAMES = ["1D", "4h"]                     # hanya 1D dan 4H
+TIMEFRAMES = ["1D", "4h"]
 WEIGHT_TECHNICAL = 0.7
 WEIGHT_FUNDAMENTAL = 0.3
-MAX_DATA_ROWS = 500                           # batasi untuk efisiensi
+MAX_DATA_ROWS = 500
+TECH_WEIGHTS = {'1D': 0.6, '4h': 0.4}
 
-# Bobot teknikal per timeframe (harus sesuai urutan)
-TECH_WEIGHTS = {'1D': 0.6, '4h': 0.4}         # 1D 60%, 4H 40%
-
-# ===================== FUNGSI LOAD DATA =====================
+# ===================== FUNGSI LOAD DATA (LOKAL) =====================
 def load_data(pair, tf):
-    """Membaca file CSV, mengembalikan DataFrame dengan maksimal MAX_DATA_ROWS baris terakhir."""
     filename = f"{pair}_{tf}.csv"
     filepath = os.path.join(DATA_FOLDER, filename)
     if not os.path.exists(filepath):
@@ -42,13 +40,11 @@ def load_data(pair, tf):
         df.dropna(inplace=True)
 
         if df.empty:
-            logging.warning(f"Data {filename} kosong setelah dibersihkan.")
             return None
 
         if len(df) > MAX_DATA_ROWS:
             df = df.iloc[-MAX_DATA_ROWS:]
 
-        logging.info(f"Berhasil memuat {len(df)} baris dari {filename}")
         return df
     except Exception as e:
         logging.error(f"Gagal membaca {filepath}: {e}")
@@ -56,7 +52,6 @@ def load_data(pair, tf):
 
 # ===================== INDIKATOR TEKNIKAL =====================
 def add_indicators(df):
-    """Menambahkan indikator, dengan pengecekan kolom minimal."""
     if df is None or df.empty:
         return df
 
@@ -82,7 +77,6 @@ def add_indicators(df):
 
 # ===================== DETEKSI SINYAL =====================
 def detect_signals(df):
-    """Deteksi sinyal, mengembalikan skor buy/sell dan alasan."""
     if df is None or df.empty:
         return 0, 0, ["Data tidak cukup"]
 
@@ -182,7 +176,6 @@ def multi_timeframe_analysis(data_dict):
     return signals
 
 def combine_technical_signals(signals):
-    """Gabungkan skor teknikal dengan bobot yang sudah ditentukan."""
     total_buy = 0
     total_sell = 0
     for tf, sig in signals.items():
@@ -275,7 +268,7 @@ def calculate_sl_tp(entry_price, atr, direction):
     else:
         return None, None
 
-# ===================== FUNGSI UTAMA =====================
+# ===================== FUNGSI UTAMA ANALISIS (LOKAL) =====================
 def analyze_pair(pair, news_text):
     logging.info(f"Memulai analisis untuk {pair}")
     data = {}
@@ -295,7 +288,7 @@ def analyze_pair(pair, news_text):
 
     final_dir, final_conf = combine_technical_fundamental(tech_dir, tech_conf, fund_dir, fund_conf)
 
-    # Entry, SL, TP dari timeframe terkecil (4h)
+    # Entry dari 4h
     df_entry = data.get('4h')
     entry_price = sl = tp = None
     if df_entry is not None and not df_entry.empty and signals.get('4h') is not None:
@@ -305,12 +298,11 @@ def analyze_pair(pair, news_text):
         if final_dir in ["BUY", "SELL"] and atr_entry > 0:
             sl, tp = calculate_sl_tp(entry_price, atr_entry, final_dir)
 
-    # Data chart dari 4H
+    # Data chart dari 4h
     chart_data = None
     if df_entry is not None and not df_entry.empty:
         df_plot = add_indicators(df_entry.copy()).reset_index()
         
-        # Ganti NaN dengan None agar valid JSON
         def clean_series(series, decimals=5):
             return [None if pd.isna(x) else round(x, decimals) for x in series]
         
@@ -352,5 +344,307 @@ def analyze_pair(pair, news_text):
         'currency_sentiment': {k: round(v, 2) for k, v in currency_sentiment.items() if v != 0},
         'chart_data': chart_data
     }
-    logging.info(f"Analisis selesai untuk {pair}")
+    return result
+
+# ===================== BACKTEST LOKAL =====================
+def run_backtest(pair, start_date, end_date, min_confidence=65, max_hold_candles=20):
+    logging.info(f"Memulai backtest lokal untuk {pair} dari {start_date} hingga {end_date}")
+
+    data_1d = load_data(pair, "1D")
+    data_4h = load_data(pair, "4h")
+
+    if data_1d is None or data_4h is None:
+        return {"error": "Data tidak lengkap"}
+
+    data_1d = data_1d.sort_index()
+    data_4h = data_4h.sort_index()
+
+    data_1d = data_1d.loc[start_date:end_date]
+    data_4h = data_4h.loc[start_date:end_date]
+
+    if data_4h.empty:
+        return {"error": "Tidak ada data 4H dalam rentang"}
+
+    min_history = 200
+    if len(data_4h) < min_history + 1:
+        return {"error": f"Data 4H terlalu sedikit, butuh minimal {min_history+1} candle"}
+
+    trades = []
+
+    for i in range(min_history, len(data_4h)):
+        df_4h_current = data_4h.iloc[:i+1].copy()
+        current_date = df_4h_current.index[-1]
+        df_1d_current = data_1d[data_1d.index <= current_date].copy()
+
+        if df_1d_current.empty:
+            continue
+
+        data_dict = {'1D': df_1d_current, '4h': df_4h_current}
+        signals = multi_timeframe_analysis(data_dict)
+        tech_dir, tech_conf = combine_technical_signals(signals)
+        fund_dir, fund_conf = "NEUTRAL", 50.0
+        final_dir, final_conf = combine_technical_fundamental(tech_dir, tech_conf, fund_dir, fund_conf)
+
+        if final_conf >= min_confidence and final_dir != "NEUTRAL":
+            entry_price = df_4h_current['Close'].iloc[-1]
+            atr = signals['4h']['atr'] if signals['4h'] else 0
+            if atr == 0:
+                continue
+            sl, tp = calculate_sl_tp(entry_price, atr, final_dir)
+
+            exit_idx = None
+            win = None
+            for j in range(i+1, min(i+1+max_hold_candles, len(data_4h))):
+                candle = data_4h.iloc[j]
+                if final_dir == "BUY":
+                    if candle['High'] >= tp:
+                        win = True
+                        exit_idx = j
+                        break
+                    elif candle['Low'] <= sl:
+                        win = False
+                        exit_idx = j
+                        break
+                else:
+                    if candle['Low'] <= tp:
+                        win = True
+                        exit_idx = j
+                        break
+                    elif candle['High'] >= sl:
+                        win = False
+                        exit_idx = j
+                        break
+
+            if exit_idx is not None:
+                if win:
+                    profit_pct = (tp - entry_price) / entry_price if final_dir == "BUY" else (entry_price - tp) / entry_price
+                else:
+                    profit_pct = (sl - entry_price) / entry_price if final_dir == "BUY" else (entry_price - sl) / entry_price
+
+                trades.append({
+                    'entry_time': str(df_4h_current.index[-1]),
+                    'direction': final_dir,
+                    'entry_price': entry_price,
+                    'sl': sl,
+                    'tp': tp,
+                    'exit_time': str(data_4h.index[exit_idx]),
+                    'win': win,
+                    'profit_pct': profit_pct * 100,
+                    'confidence': final_conf
+                })
+
+    total_trades = len(trades)
+    if total_trades == 0:
+        return {"message": "Tidak ada sinyal yang memenuhi syarat"}
+
+    wins = sum(1 for t in trades if t['win'])
+    losses = total_trades - wins
+    win_rate = wins / total_trades * 100
+    total_profit_pct = sum(t['profit_pct'] for t in trades)
+    avg_profit_pct = total_profit_pct / total_trades
+
+    total_profit = sum(t['profit_pct'] for t in trades if t['win'])
+    total_loss = abs(sum(t['profit_pct'] for t in trades if not t['win']))
+    profit_factor = total_profit / total_loss if total_loss != 0 else float('inf')
+
+    equity = 0
+    peak = 0
+    max_dd = 0
+    for t in trades:
+        equity += t['profit_pct']
+        if equity > peak:
+            peak = equity
+        dd = (peak - equity) / 100
+        if dd > max_dd:
+            max_dd = dd
+
+    result = {
+        'total_trades': total_trades,
+        'wins': wins,
+        'losses': losses,
+        'win_rate': round(win_rate, 2),
+        'total_profit_pct': round(total_profit_pct, 2),
+        'avg_profit_pct': round(avg_profit_pct, 2),
+        'profit_factor': round(profit_factor, 2),
+        'max_drawdown_pct': round(max_dd, 2),
+        'trades': trades[-20:]
+    }
+    return result
+
+# ===================== BACKTEST REAL-TIME (API) =====================
+def run_backtest_realtime(pair, interval="4h", days_back=90, min_confidence=65):
+    logging.info(f"Memulai backtest real-time untuk {pair} {interval} {days_back} days")
+    
+    api_symbol = f"{pair[:3]}/{pair[3:]}"
+    df = get_intraday_data(api_symbol, interval, days=days_back)
+    
+    if df is None or df.empty:
+        return {"error": "Gagal mendapatkan data dari API"}
+    
+    # Konversi kolom ke format yang diharapkan (kapital)
+    df.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+    
+    min_history = 200
+    if len(df) < min_history + 1:
+        return {"error": f"Data terlalu sedikit, butuh minimal {min_history+1} candle"}
+    
+    trades = []
+    
+    for i in range(min_history, len(df)):
+        df_current = df.iloc[:i+1].copy()
+        
+        # Untuk backtest real-time, kita hanya punya satu timeframe (interval)
+        # Asumsikan kita menggunakan interval yang sama untuk semua, misal 4h.
+        # Bisa juga download 1D secara terpisah, tapi untuk sederhana gunakan resample?
+        # Di sini kita gunakan data yang sama untuk 1D dan 4h (tidak ideal tapi untuk demo)
+        data_dict = {'1D': df_current.resample('D').last().dropna(), '4h': df_current}
+        
+        signals = multi_timeframe_analysis(data_dict)
+        tech_dir, tech_conf = combine_technical_signals(signals)
+        fund_dir, fund_conf = "NEUTRAL", 50.0
+        final_dir, final_conf = combine_technical_fundamental(tech_dir, tech_conf, fund_dir, fund_conf)
+        
+        if final_conf >= min_confidence and final_dir != "NEUTRAL":
+            entry_price = df_current['Close'].iloc[-1]
+            atr = signals['4h']['atr'] if signals['4h'] else 0
+            if atr == 0:
+                continue
+                
+            sl, tp = calculate_sl_tp(entry_price, atr, final_dir)
+            
+            max_hold = 20
+            exit_idx = None
+            win = None
+            
+            for j in range(i+1, min(i+1+max_hold, len(df))):
+                candle = df.iloc[j]
+                if final_dir == "BUY":
+                    if candle['High'] >= tp:
+                        win = True
+                        exit_idx = j
+                        break
+                    elif candle['Low'] <= sl:
+                        win = False
+                        exit_idx = j
+                        break
+                else:
+                    if candle['Low'] <= tp:
+                        win = True
+                        exit_idx = j
+                        break
+                    elif candle['High'] >= sl:
+                        win = False
+                        exit_idx = j
+                        break
+            
+            if exit_idx is not None:
+                if win:
+                    profit_pct = (tp - entry_price) / entry_price if final_dir == "BUY" else (entry_price - tp) / entry_price
+                else:
+                    profit_pct = (sl - entry_price) / entry_price if final_dir == "BUY" else (entry_price - sl) / entry_price
+                
+                trades.append({
+                    'entry_time': str(df_current.index[-1]),
+                    'direction': final_dir,
+                    'entry_price': entry_price,
+                    'sl': sl,
+                    'tp': tp,
+                    'exit_time': str(df.index[exit_idx]),
+                    'win': win,
+                    'profit_pct': profit_pct * 100,
+                    'confidence': final_conf
+                })
+    
+    total_trades = len(trades)
+    if total_trades == 0:
+        return {"message": "Tidak ada sinyal yang memenuhi syarat"}
+    
+    wins = sum(1 for t in trades if t['win'])
+    losses = total_trades - wins
+    win_rate = wins / total_trades * 100
+    total_profit_pct = sum(t['profit_pct'] for t in trades)
+    avg_profit_pct = total_profit_pct / total_trades
+    
+    total_profit = sum(t['profit_pct'] for t in trades if t['win'])
+    total_loss = abs(sum(t['profit_pct'] for t in trades if not t['win']))
+    profit_factor = total_profit / total_loss if total_loss != 0 else float('inf')
+    
+    equity = 0
+    peak = 0
+    max_dd = 0
+    for t in trades:
+        equity += t['profit_pct']
+        if equity > peak:
+            peak = equity
+        dd = (peak - equity) / 100
+        if dd > max_dd:
+            max_dd = dd
+    
+    result = {
+        'total_trades': total_trades,
+        'wins': wins,
+        'losses': losses,
+        'win_rate': round(win_rate, 2),
+        'total_profit_pct': round(total_profit_pct, 2),
+        'avg_profit_pct': round(avg_profit_pct, 2),
+        'profit_factor': round(profit_factor, 2),
+        'max_drawdown_pct': round(max_dd, 2),
+        'trades': trades[-20:],
+        'data_period': f"{df.index[0]} to {df.index[-1]}"
+    }
+    return result
+
+# ===================== LIVE PREDICTION =====================
+def get_live_prediction(pair):
+    api_symbol = f"{pair[:3]}/{pair[3:]}"
+    
+    quote = get_quote(api_symbol)
+    current_price = get_real_time_price(api_symbol)
+    
+    if current_price is None:
+        return {"error": "Gagal mendapatkan harga real-time"}
+    
+    # Dapatkan data historis dari cache atau API
+    df_4h = download_and_cache(api_symbol, "4h")
+    df_1d = download_and_cache(api_symbol, "1day")
+    
+    if df_4h is None or df_1d is None:
+        return {"error": "Gagal mendapatkan data historis"}
+    
+    data_dict = {'1D': df_1d, '4h': df_4h}
+    signals = multi_timeframe_analysis(data_dict)
+    tech_dir, tech_conf = combine_technical_signals(signals)
+    
+    # Ambil ATR terbaru dari 4h
+    atr_4h = signals['4h']['atr'] if signals['4h'] else 0
+    if atr_4h > 0:
+        sl, tp = calculate_sl_tp(current_price, atr_4h, tech_dir)
+    else:
+        sl = tp = None
+    
+    bid = float(quote.get('bid', current_price)) if quote and 'bid' in quote else current_price
+    ask = float(quote.get('ask', current_price)) if quote and 'ask' in quote else current_price
+    
+    result = {
+        'pair': pair,
+        'current_price': round(current_price, 5),
+        'bid': round(bid, 5),
+        'ask': round(ask, 5),
+        'timestamp': datetime.now().isoformat(),
+        'prediction': {
+            'direction': tech_dir,
+            'confidence': round(tech_conf, 2),
+            'entry': round(current_price, 5),
+            'sl': round(sl, 5) if sl else None,
+            'tp': round(tp, 5) if tp else None,
+            'atr': round(atr_4h, 5)
+        },
+        'signals': {
+            tf: {
+                'buy_score': round(signals[tf]['buy_score'], 2) if signals[tf] else None,
+                'sell_score': round(signals[tf]['sell_score'], 2) if signals[tf] else None,
+                'reasons': signals[tf]['reasons'] if signals[tf] else []
+            } for tf in ['1D', '4h'] if signals.get(tf) is not None
+        }
+    }
     return result
