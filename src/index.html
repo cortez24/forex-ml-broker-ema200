@@ -188,16 +188,13 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                 const pair = document.getElementById('pair').value;
                 const news = document.getElementById('news').value;
 
-                // Reset tampilan
                 resultDiv.style.display = 'none';
                 errorDiv.style.display = 'none';
                 chartDiv.innerHTML = '';
                 
-                // Tampilkan loading
                 analyzeBtn.disabled = true;
                 loadingIndicator.style.display = 'inline-block';
 
-                // Setup timeout 30 detik
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 30000);
 
@@ -270,16 +267,17 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
 
                 const reasonsDiv = document.getElementById('reasons');
                 reasonsDiv.innerHTML = '';
-                const timeframes = ['1H', '4h', '1D'];
-                for (const tf of timeframes) {
-                    if (data.signals && data.signals[tf]) {
+                if (data.signals) {
+                    for (const tf in data.signals) {
                         const s = data.signals[tf];
-                        reasonsDiv.innerHTML += `
-                            <div style="margin-bottom:10px;">
-                                <strong>${tf}</strong> - Buy: ${s.buy_score} | Sell: ${s.sell_score}<br>
-                                <small>${s.reasons.slice(0,3).join(', ')}</small>
-                            </div>
-                        `;
+                        if (s) {
+                            reasonsDiv.innerHTML += `
+                                <div style="margin-bottom:10px;">
+                                    <strong>${tf}</strong> - Buy: ${s.buy_score} | Sell: ${s.sell_score}<br>
+                                    <small>${s.reasons.slice(0,3).join(', ')}</small>
+                                </div>
+                            `;
+                        }
                     }
                 }
 
@@ -453,7 +451,7 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                 }
 
                 const layout = {
-                    title: 'Analisis Teknikal (1H)',
+                    title: 'Analisis Teknikal (4H)',
                     xaxis: { rangeslider: { visible: false } },
                     yaxis: { domain: [0.45, 1] },
                     yaxis2: { domain: [0.3, 0.4], title: 'RSI' },
