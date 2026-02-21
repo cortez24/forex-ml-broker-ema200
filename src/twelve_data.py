@@ -109,7 +109,6 @@ def get_historical_data(symbol, interval="1h", outputsize=5000, start_date=None,
             df["datetime"] = pd.to_datetime(df["datetime"])
             df.set_index("datetime", inplace=True)
             
-            # Mapping nama kolom dari API ke format kita
             rename_map = {}
             if "open" in df.columns:
                 rename_map["open"] = "Open"
@@ -123,18 +122,15 @@ def get_historical_data(symbol, interval="1h", outputsize=5000, start_date=None,
                 rename_map["volume"] = "Volume"
             df.rename(columns=rename_map, inplace=True)
             
-            # Pastikan kolom harga wajib ada
             required = ["Open", "High", "Low", "Close"]
             if not all(col in df.columns for col in required):
                 missing = [col for col in required if col not in df.columns]
                 logging.error(f"Kolom {missing} tidak ditemukan dalam respons API")
                 return None
             
-            # Jika volume tidak ada, tambahkan dengan 0
             if "Volume" not in df.columns:
                 df["Volume"] = 0
             
-            # Konversi ke numeric
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
             df.dropna(subset=["Open", "High", "Low", "Close"], inplace=True)
@@ -158,7 +154,6 @@ def download_and_cache(symbol, interval, output_folder="data/api"):
         if datetime.now() - file_time < timedelta(days=1):
             logging.info(f"Menggunakan cached data: {filename}")
             df = pd.read_csv(filepath, index_col=0, parse_dates=True)
-            # Pastikan kolom berformat Title Case (Open, High, dll)
             df.columns = [col.capitalize() for col in df.columns]
             return df
 
