@@ -52,19 +52,18 @@ def download_data(pair):
     if df.empty:
         raise ValueError("Pair tidak valid atau tidak ada data")
 
-    # FIX MultiIndex columns
+    # HANDLE MultiIndex (yfinance terbaru)
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
     df.reset_index(inplace=True)
 
-    # rename to lowercase
+    # convert semua kolom jadi string lowercase (aman untuk tuple)
     df.columns = [str(c).lower() for c in df.columns]
 
     df.to_csv(data_file(pair), index=False)
 
     return True
-
 # =========================
 # INDICATORS
 # =========================
