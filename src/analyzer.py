@@ -14,9 +14,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # ===================== KONFIGURASI =====================
 DATA_FOLDER = os.path.join(os.path.dirname(__file__), 'data')
 TIMEFRAMES = ["1D", "4h", "1H"]
+# Bobot untuk menggabungkan skor teknikal (1D dan 4H lebih dominan)
+WEIGHTS = {'1D': 0.5, '4h': 0.3, '1H': 0.2}
 WEIGHT_TECHNICAL = 0.7
 WEIGHT_FUNDAMENTAL = 0.3
 MAX_DATA_ROWS = 500  # batasi jumlah baris data untuk mempercepat komputasi
+MIN_CONFIDENCE = 65  # keyakinan minimal untuk memberikan rekomendasi
 
 # ===================== FUNGSI LOAD DATA =====================
 def load_data(pair, tf):
@@ -91,6 +94,7 @@ def detect_signals(df):
     sell_score = 0
     reasons = []
 
+    # Cek keberadaan kolom sebelum akses
     # 1. SMA
     if 'sma_20' in df.columns and 'sma_50' in df.columns:
         if pd.notna(last['sma_20']) and pd.notna(last['sma_50']):
@@ -182,14 +186,13 @@ def multi_timeframe_analysis(data_dict):
     return signals
 
 def combine_technical_signals(signals):
-    weights = {'1D': 0.4, '4h': 0.35, '1H': 0.25}
     total_buy = 0
     total_sell = 0
     for tf, sig in signals.items():
         if sig is None:
             continue
-        total_buy += sig['buy_score'] * weights[tf]
-        total_sell += sig['sell_score'] * weights[tf]
+        total_buy += sig['buy_score'] * WEIGHTS[tf]
+        total_sell += sig['sell_score'] * WEIGHTS[tf]
 
     if total_buy > total_sell:
         return "BUY", total_buy
@@ -295,22 +298,28 @@ def analyze_pair(pair, news_text):
 
     final_dir, final_conf = combine_technical_fundamental(tech_dir, tech_conf, fund_dir, fund_conf)
 
-    # Entry, SL, TP dari 1H
+    # Jika keyakinan di bawah MIN_CONFIDENCE, ubah menjadi NEUTRAL
+    if final_conf < MIN_CONFIDENCE:
+        logging.info(f"Keyakinan {final_conf:.2f}% < {MIN_CONFIDENCE}%, rekomendasi diubah menjadi NEUTRAL")
+        final_dir = "NEUTRAL"
+        # entry, sl, tp akan tetap None
+
+    # Entry, SL, TP dari 1H (hanya jika final_dir bukan NEUTRAL)
     df_1h = data.get('1H')
     entry_price = sl = tp = None
-    if df_1h is not None and not df_1h.empty and signals.get('1H') is not None:
+    if final_dir in ["BUY", "SELL"] and df_1h is not None and not df_1h.empty and signals.get('1H') is not None:
         last_row = df_1h.iloc[-1]
         entry_price = float(last_row['Close'])
         atr_1h = signals['1H'].get('atr', 0)
-        if final_dir in ["BUY", "SELL"] and atr_1h > 0:
+        if atr_1h > 0:
             sl, tp = calculate_sl_tp(entry_price, atr_1h, final_dir)
 
-    # Data chart
+    # Data chart (tetap disediakan meskipun rekomendasi NEUTRAL)
     chart_data = None
     if df_1h is not None and not df_1h.empty:
         df_1h_plot = add_indicators(df_1h.copy()).reset_index()
         
-        # Fungsi untuk mengganti NaN dengan None (agar JSON valid)
+        # Fungsi untuk mengganti NaN dengan None (akan jadi null di JSON)
         def clean_series(series, decimals=5):
             return [None if pd.isna(x) else round(x, decimals) for x in series]
         
@@ -320,7 +329,7 @@ def analyze_pair(pair, news_text):
             'high': clean_series(df_1h_plot['High']),
             'low': clean_series(df_1h_plot['Low']),
             'close': clean_series(df_1h_plot['Close']),
-            'volume': clean_series(df_1h_plot['Volume'], decimals=0),  # volume integer
+            'volume': clean_series(df_1h_plot['Volume'], decimals=0),
             'sma20': clean_series(df_1h_plot['sma_20']),
             'sma50': clean_series(df_1h_plot['sma_50']),
             'sma200': clean_series(df_1h_plot['sma_200']),
