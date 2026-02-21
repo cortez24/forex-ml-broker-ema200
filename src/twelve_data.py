@@ -28,7 +28,6 @@ def rate_limit():
     last_request_time = time.time()
 
 def get_real_time_price(symbol):
-    """Mendapatkan harga real-time sederhana"""
     rate_limit()
     url = f"{BASE_URL}/price"
     params = {"symbol": symbol, "apikey": API_KEY, "dp": 5}
@@ -46,7 +45,6 @@ def get_real_time_price(symbol):
         return None
 
 def get_quote(symbol):
-    """Mendapatkan quote lengkap (bid, ask, volume, dll) – dengan fallback ke price jika gagal"""
     rate_limit()
     url = f"{BASE_URL}/quote"
     params = {"symbol": symbol, "apikey": API_KEY, "dp": 5}
@@ -58,7 +56,7 @@ def get_quote(symbol):
             return data
         else:
             logging.error(f"Quote error: {data.get('message', 'Unknown error')}")
-            # Fallback: buat quote sederhana dari price
+            # Fallback ke price
             price = get_real_time_price(symbol)
             if price:
                 return {
@@ -73,7 +71,6 @@ def get_quote(symbol):
             return None
     except Exception as e:
         logging.error(f"Error fetching quote for {symbol}: {e}")
-        # Fallback ke price
         price = get_real_time_price(symbol)
         if price:
             return {
@@ -111,18 +108,36 @@ def get_historical_data(symbol, interval="1h", outputsize=5000, start_date=None,
             df = pd.DataFrame(data["values"])
             df["datetime"] = pd.to_datetime(df["datetime"])
             df.set_index("datetime", inplace=True)
-            # Ubah nama kolom ke format yang kita pakai (Capitalized)
-            df.rename(columns={
-                "open": "Open",
-                "high": "High",
-                "low": "Low",
-                "close": "Close",
-                "volume": "Volume"
-            }, inplace=True)
+            
+            # Mapping nama kolom dari API ke format kita
+            rename_map = {}
+            if "open" in df.columns:
+                rename_map["open"] = "Open"
+            if "high" in df.columns:
+                rename_map["high"] = "High"
+            if "low" in df.columns:
+                rename_map["low"] = "Low"
+            if "close" in df.columns:
+                rename_map["close"] = "Close"
+            if "volume" in df.columns:
+                rename_map["volume"] = "Volume"
+            df.rename(columns=rename_map, inplace=True)
+            
+            # Pastikan kolom harga wajib ada
+            required = ["Open", "High", "Low", "Close"]
+            if not all(col in df.columns for col in required):
+                missing = [col for col in required if col not in df.columns]
+                logging.error(f"Kolom {missing} tidak ditemukan dalam respons API")
+                return None
+            
+            # Jika volume tidak ada, tambahkan dengan 0
+            if "Volume" not in df.columns:
+                df["Volume"] = 0
+            
             # Konversi ke numeric
             for col in ["Open", "High", "Low", "Close", "Volume"]:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
-            df.dropna(inplace=True)
+            df.dropna(subset=["Open", "High", "Low", "Close"], inplace=True)
             return df
         elif "code" in data:
             logging.error(f"API Error: {data.get('message', 'Unknown error')}")
