@@ -147,7 +147,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>📈 Forex Analyzer Pro - Live Prediction</h1>
+        <h1>📈 Forex Analyzer Pro - Live Prediction (M15 Entry)</h1>
         
         <div class="nav">
             <a href="/">Analisis Teknikal</a>
@@ -182,7 +182,7 @@
                 <div class="price-value ask" id="askPrice">-</div>
             </div>
             <div class="price-item">
-                <div class="price-label">ATR (15min)</div>
+                <div class="price-label">ATR (15m)</div>
                 <div class="price-value" id="atr">-</div>
             </div>
             <div class="price-item">
@@ -206,7 +206,7 @@
             </div>
             
             <div id="reasons" style="margin-top: 15px;">
-                <h3>Analisis Teknikal</h3>
+                <h3>Analisis Teknikal Multi-Timeframe</h3>
                 <div id="signals"></div>
             </div>
         </div>
@@ -299,13 +299,18 @@
                 signalsDiv.innerHTML = '';
                 
                 if (data.signals && Object.keys(data.signals).length > 0) {
-                    for (const [tf, sig] of Object.entries(data.signals)) {
-                        signalsDiv.innerHTML += `
-                            <div style="margin-bottom:10px;">
-                                <strong>${tf}</strong> - Buy: ${sig.buy_score ?? 0} | Sell: ${sig.sell_score ?? 0}<br>
-                                <small>${sig.reasons ? sig.reasons.slice(0,3).join(', ') : ''}</small>
-                            </div>
-                        `;
+                    // Urutkan timeframe: 1D, 4h, 1h, 15min
+                    const order = ['1D', '4h', '1h', '15min'];
+                    for (const tf of order) {
+                        const sig = data.signals[tf];
+                        if (sig) {
+                            signalsDiv.innerHTML += `
+                                <div style="margin-bottom:10px;">
+                                    <strong>${tf}</strong> - Buy: ${sig.buy_score ?? 0} | Sell: ${sig.sell_score ?? 0}<br>
+                                    <small>${sig.reasons ? sig.reasons.slice(0,3).join(', ') : ''}</small>
+                                </div>
+                            `;
+                        }
                     }
                 } else {
                     signalsDiv.innerHTML = '<p>Tidak ada sinyal.</p>';
