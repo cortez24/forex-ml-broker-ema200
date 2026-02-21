@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
+import yfinance as yf
 import pickle
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
@@ -14,16 +15,22 @@ if not os.path.exists(DATA_FOLDER):
     os.makedirs(DATA_FOLDER)
 
 # =====================================================
-# LOAD FILE KHUSUS FORMAT ANDA (TAB, TANPA HEADER)
+# SMART FILE LOADER (ANTI ERROR TOTAL)
 # =====================================================
 
 def load_price_file(filename):
 
-    df = pd.read_csv(filename, sep="\t", header=None)
+    # auto detect separator
+    df = pd.read_csv(filename, sep=None, engine='python', header=None)
+
+    # jika hanya 1 kolom → berarti separator salah
+    if df.shape[1] == 1:
+        df = pd.read_csv(filename, delim_whitespace=True, header=None)
+
+    if df.shape[1] != 6:
+        raise Exception("Format CSV salah. Harus 6 kolom: datetime open high low close volume")
 
     df.columns = ['datetime','open','high','low','close','volume']
-
-    df.columns = df.columns.str.lower()
 
     numeric_cols = ['open','high','low','close','volume']
 
@@ -33,6 +40,35 @@ def load_price_file(filename):
     df.dropna(inplace=True)
 
     return df
+
+# =====================================================
+# DOWNLOAD DATA (OPTIONAL)
+# =====================================================
+
+def download_data(pair, interval="1h", period="180d"):
+
+    symbol_map = {
+        "EURUSD": "EURUSD=X",
+        "GBPUSD": "GBPUSD=X",
+        "USDJPY": "USDJPY=X",
+        "XAUUSD": "GC=F"
+    }
+
+    pair = pair.upper()
+    symbol = symbol_map.get(pair)
+
+    if not symbol:
+        raise ValueError("Pair tidak didukung")
+
+    df = yf.download(symbol, interval=interval, period=period)
+
+    df = df.rename(columns=str.lower)
+    df.reset_index(inplace=True)
+
+    filename = os.path.join(DATA_FOLDER, f"{pair}_{interval}.csv")
+    df.to_csv(filename, index=False)
+
+    return filename
 
 # =====================================================
 # INDICATORS
@@ -64,6 +100,55 @@ def add_indicators(df):
     return df
 
 # =====================================================
+# BACKTEST
+# =====================================================
+
+def backtest(pair):
+
+    pair = pair.upper()
+    filename = os.path.join(DATA_FOLDER, f"{pair}_1h.csv")
+
+    if not os.path.exists(filename):
+        raise Exception("File tidak ditemukan")
+
+    df = load_price_file(filename)
+    df = add_indicators(df)
+
+    balance = 10000
+    wins = 0
+    losses = 0
+
+    for i in range(50, len(df)-1):
+
+        entry = df.iloc[i]['close']
+        next_close = df.iloc[i+1]['close']
+
+        if df.iloc[i]['ema50'] > df.iloc[i]['ema200']:
+            signal = 1
+        else:
+            signal = -1
+
+        if signal == 1 and next_close > entry:
+            wins += 1
+            balance *= 1.01
+        elif signal == -1 and next_close < entry:
+            wins += 1
+            balance *= 1.01
+        else:
+            losses += 1
+            balance *= 0.99
+
+    total = wins + losses
+    winrate = (wins / total * 100) if total > 0 else 0
+
+    return {
+        "balance": round(balance,2),
+        "wins": wins,
+        "losses": losses,
+        "winrate": round(winrate,2)
+    }
+
+# =====================================================
 # MACHINE LEARNING
 # =====================================================
 
@@ -73,7 +158,7 @@ def train_ml(pair):
     filename = os.path.join(DATA_FOLDER, f"{pair}_1h.csv")
 
     if not os.path.exists(filename):
-        raise Exception(f"File {filename} tidak ditemukan")
+        raise Exception("File tidak ditemukan")
 
     df = load_price_file(filename)
     df = add_indicators(df)
@@ -90,7 +175,7 @@ def train_ml(pair):
         features, target, test_size=0.2, random_state=42
     )
 
-    model = LogisticRegression(max_iter=2000)
+    model = LogisticRegression(max_iter=3000)
     model.fit(X_train, y_train)
 
     preds = model.predict(X_test)
