@@ -244,8 +244,11 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                         errorDiv.style.display = 'block';
                     } else {
                         displayResults(data);
-                        if (data.chart_data) {
+                        if (data.chart_data && data.chart_data.time && data.chart_data.time.length > 0) {
                             drawChart(data.chart_data, data.entry, data.sl, data.tp);
+                        } else {
+                            console.warn('Chart data tidak tersedia');
+                            chartDiv.innerHTML = '<p style="text-align:center; color:#888;">Data chart tidak tersedia. Pastikan file CSV untuk timeframe 1h tersedia.</p>';
                         }
                     }
                 } catch (err) {
@@ -263,21 +266,28 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
             });
 
             function displayResults(data) {
+                // Periksa apakah data memiliki properti yang diperlukan
+                if (!data.pair) {
+                    errorDiv.textContent = 'Data tidak lengkap dari server.';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+
                 document.getElementById('pairName').textContent = data.pair;
                 
                 const dirEl = document.getElementById('direction');
-                dirEl.textContent = `REKOMENDASI: ${data.final_direction}`;
-                dirEl.className = `direction ${data.final_direction.toLowerCase()}`;
+                dirEl.textContent = `REKOMENDASI: ${data.final_direction || 'NEUTRAL'}`;
+                dirEl.className = `direction ${(data.final_direction || 'neutral').toLowerCase()}`;
                 
                 document.getElementById('entry').textContent = data.entry || '-';
                 document.getElementById('sl').textContent = data.sl || '-';
                 document.getElementById('tp').textContent = data.tp || '-';
                 
-                document.getElementById('techDir').textContent = data.technical.direction;
-                document.getElementById('techConf').textContent = data.technical.confidence;
-                document.getElementById('fundDir').textContent = data.fundamental.direction;
-                document.getElementById('fundConf').textContent = data.fundamental.confidence;
-                document.getElementById('finalConf').textContent = data.final_confidence;
+                document.getElementById('techDir').textContent = data.technical?.direction || 'NEUTRAL';
+                document.getElementById('techConf').textContent = data.technical?.confidence || '0';
+                document.getElementById('fundDir').textContent = data.fundamental?.direction || 'NEUTRAL';
+                document.getElementById('fundConf').textContent = data.fundamental?.confidence || '0';
+                document.getElementById('finalConf').textContent = data.final_confidence || '0';
 
                 const sentimentDiv = document.getElementById('sentimentContainer');
                 sentimentDiv.innerHTML = '<strong>Sentimen Fundamental:</strong> ';
@@ -293,203 +303,213 @@ Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karen
                 const reasonsDiv = document.getElementById('reasons');
                 reasonsDiv.innerHTML = '';
                 const timeframes = ['1D', '4h', '1h', '15min'];
+                let hasSignals = false;
                 for (const tf of timeframes) {
                     if (data.signals && data.signals[tf]) {
+                        hasSignals = true;
                         const s = data.signals[tf];
                         reasonsDiv.innerHTML += `
                             <div style="margin-bottom:10px;">
-                                <strong>${tf}</strong> - Buy: ${s.buy_score} | Sell: ${s.sell_score}<br>
+                                <strong>${tf}</strong> - Buy: ${s.buy_score ?? '0'} | Sell: ${s.sell_score ?? '0'}<br>
                                 <small>${s.reasons ? s.reasons.slice(0,3).join(', ') : ''}</small>
                             </div>
                         `;
                     }
+                }
+                if (!hasSignals) {
+                    reasonsDiv.innerHTML = '<p>Tidak ada sinyal teknikal. Periksa ketersediaan data CSV.</p>';
                 }
 
                 resultDiv.style.display = 'block';
             }
 
             function drawChart(chartData, entry, sl, tp) {
-                const times = chartData.time.map(t => new Date(t));
+                try {
+                    const times = chartData.time.map(t => new Date(t));
 
-                const traceCandle = {
-                    x: times,
-                    open: chartData.open,
-                    high: chartData.high,
-                    low: chartData.low,
-                    close: chartData.close,
-                    type: 'candlestick',
-                    name: 'Harga',
-                    increasing: { line: { color: '#4CAF50' } },
-                    decreasing: { line: { color: '#f44336' } }
-                };
+                    const traceCandle = {
+                        x: times,
+                        open: chartData.open,
+                        high: chartData.high,
+                        low: chartData.low,
+                        close: chartData.close,
+                        type: 'candlestick',
+                        name: 'Harga',
+                        increasing: { line: { color: '#4CAF50' } },
+                        decreasing: { line: { color: '#f44336' } }
+                    };
 
-                const traceSMA20 = {
-                    x: times,
-                    y: chartData.sma20,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'SMA 20',
-                    line: { color: 'blue', width: 1 }
-                };
-                const traceSMA50 = {
-                    x: times,
-                    y: chartData.sma50,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'SMA 50',
-                    line: { color: 'orange', width: 1 }
-                };
-                const traceSMA200 = {
-                    x: times,
-                    y: chartData.sma200,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'SMA 200',
-                    line: { color: 'red', width: 1 }
-                };
+                    const traceSMA20 = {
+                        x: times,
+                        y: chartData.sma20,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'SMA 20',
+                        line: { color: 'blue', width: 1 }
+                    };
+                    const traceSMA50 = {
+                        x: times,
+                        y: chartData.sma50,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'SMA 50',
+                        line: { color: 'orange', width: 1 }
+                    };
+                    const traceSMA200 = {
+                        x: times,
+                        y: chartData.sma200,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'SMA 200',
+                        line: { color: 'red', width: 1 }
+                    };
 
-                const traceBBUpper = {
-                    x: times,
-                    y: chartData.bb_upper,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'BB Upper',
-                    line: { color: 'gray', width: 1, dash: 'dash' }
-                };
-                const traceBBLower = {
-                    x: times,
-                    y: chartData.bb_lower,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'BB Lower',
-                    line: { color: 'gray', width: 1, dash: 'dash' }
-                };
+                    const traceBBUpper = {
+                        x: times,
+                        y: chartData.bb_upper,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'BB Upper',
+                        line: { color: 'gray', width: 1, dash: 'dash' }
+                    };
+                    const traceBBLower = {
+                        x: times,
+                        y: chartData.bb_lower,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'BB Lower',
+                        line: { color: 'gray', width: 1, dash: 'dash' }
+                    };
 
-                const traceRSI = {
-                    x: times,
-                    y: chartData.rsi,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'RSI',
-                    line: { color: 'purple' },
-                    yaxis: 'y2'
-                };
+                    const traceRSI = {
+                        x: times,
+                        y: chartData.rsi,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'RSI',
+                        line: { color: 'purple' },
+                        yaxis: 'y2'
+                    };
 
-                const traceMACD = {
-                    x: times,
-                    y: chartData.macd,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'MACD',
-                    line: { color: 'blue' },
-                    yaxis: 'y3'
-                };
-                const traceMACDSignal = {
-                    x: times,
-                    y: chartData.macd_signal,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'Signal',
-                    line: { color: 'orange' },
-                    yaxis: 'y3'
-                };
-                const traceMACDHist = {
-                    x: times,
-                    y: chartData.macd_hist,
-                    type: 'bar',
-                    name: 'Histogram',
-                    marker: { color: 'rgba(100,100,255,0.5)' },
-                    yaxis: 'y3'
-                };
+                    const traceMACD = {
+                        x: times,
+                        y: chartData.macd,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'MACD',
+                        line: { color: 'blue' },
+                        yaxis: 'y3'
+                    };
+                    const traceMACDSignal = {
+                        x: times,
+                        y: chartData.macd_signal,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Signal',
+                        line: { color: 'orange' },
+                        yaxis: 'y3'
+                    };
+                    const traceMACDHist = {
+                        x: times,
+                        y: chartData.macd_hist,
+                        type: 'bar',
+                        name: 'Histogram',
+                        marker: { color: 'rgba(100,100,255,0.5)' },
+                        yaxis: 'y3'
+                    };
 
-                const traceVolume = {
-                    x: times,
-                    y: chartData.volume,
-                    type: 'bar',
-                    name: 'Volume',
-                    marker: { color: 'rgba(255,255,255,0.3)' },
-                    yaxis: 'y4'
-                };
+                    const traceVolume = {
+                        x: times,
+                        y: chartData.volume,
+                        type: 'bar',
+                        name: 'Volume',
+                        marker: { color: 'rgba(255,255,255,0.3)' },
+                        yaxis: 'y4'
+                    };
 
-                const shapes = [];
-                const annotations = [];
-                if (entry) {
-                    shapes.push({
-                        type: 'line',
-                        x0: times[0],
-                        y0: entry,
-                        x1: times[times.length-1],
-                        y1: entry,
-                        line: { color: 'blue', width: 2, dash: 'solid' }
-                    });
-                    annotations.push({
-                        x: times[Math.floor(times.length/2)],
-                        y: entry,
-                        text: `Entry: ${entry}`,
-                        showarrow: true,
-                        arrowhead: 2,
-                        ax: 0,
-                        ay: -30,
-                        font: { color: 'blue' }
-                    });
+                    const shapes = [];
+                    const annotations = [];
+                    if (entry) {
+                        shapes.push({
+                            type: 'line',
+                            x0: times[0],
+                            y0: entry,
+                            x1: times[times.length-1],
+                            y1: entry,
+                            line: { color: 'blue', width: 2, dash: 'solid' }
+                        });
+                        annotations.push({
+                            x: times[Math.floor(times.length/2)],
+                            y: entry,
+                            text: `Entry: ${entry}`,
+                            showarrow: true,
+                            arrowhead: 2,
+                            ax: 0,
+                            ay: -30,
+                            font: { color: 'blue' }
+                        });
+                    }
+                    if (sl) {
+                        shapes.push({
+                            type: 'line',
+                            x0: times[0],
+                            y0: sl,
+                            x1: times[times.length-1],
+                            y1: sl,
+                            line: { color: 'red', width: 2, dash: 'dash' }
+                        });
+                        annotations.push({
+                            x: times[Math.floor(times.length/2)],
+                            y: sl,
+                            text: `SL: ${sl}`,
+                            showarrow: true,
+                            arrowhead: 2,
+                            ax: 0,
+                            ay: -30,
+                            font: { color: 'red' }
+                        });
+                    }
+                    if (tp) {
+                        shapes.push({
+                            type: 'line',
+                            x0: times[0],
+                            y0: tp,
+                            x1: times[times.length-1],
+                            y1: tp,
+                            line: { color: 'green', width: 2, dash: 'dash' }
+                        });
+                        annotations.push({
+                            x: times[Math.floor(times.length/2)],
+                            y: tp,
+                            text: `TP: ${tp}`,
+                            showarrow: true,
+                            arrowhead: 2,
+                            ax: 0,
+                            ay: -30,
+                            font: { color: 'green' }
+                        });
+                    }
+
+                    const layout = {
+                        title: 'Analisis Teknikal (1H)',
+                        xaxis: { rangeslider: { visible: false } },
+                        yaxis: { domain: [0.45, 1] },
+                        yaxis2: { domain: [0.3, 0.4], title: 'RSI' },
+                        yaxis3: { domain: [0.15, 0.25], title: 'MACD' },
+                        yaxis4: { domain: [0, 0.1], title: 'Volume' },
+                        shapes: shapes,
+                        annotations: annotations,
+                        template: 'plotly_dark'
+                    };
+
+                    Plotly.newPlot('chart', [
+                        traceCandle, traceSMA20, traceSMA50, traceSMA200, traceBBUpper, traceBBLower,
+                        traceRSI, traceMACD, traceMACDSignal, traceMACDHist, traceVolume
+                    ], layout);
+                } catch (err) {
+                    console.error('Error drawing chart:', err);
+                    chartDiv.innerHTML = '<p style="text-align:center; color:#888;">Gagal menggambar chart.</p>';
                 }
-                if (sl) {
-                    shapes.push({
-                        type: 'line',
-                        x0: times[0],
-                        y0: sl,
-                        x1: times[times.length-1],
-                        y1: sl,
-                        line: { color: 'red', width: 2, dash: 'dash' }
-                    });
-                    annotations.push({
-                        x: times[Math.floor(times.length/2)],
-                        y: sl,
-                        text: `SL: ${sl}`,
-                        showarrow: true,
-                        arrowhead: 2,
-                        ax: 0,
-                        ay: -30,
-                        font: { color: 'red' }
-                    });
-                }
-                if (tp) {
-                    shapes.push({
-                        type: 'line',
-                        x0: times[0],
-                        y0: tp,
-                        x1: times[times.length-1],
-                        y1: tp,
-                        line: { color: 'green', width: 2, dash: 'dash' }
-                    });
-                    annotations.push({
-                        x: times[Math.floor(times.length/2)],
-                        y: tp,
-                        text: `TP: ${tp}`,
-                        showarrow: true,
-                        arrowhead: 2,
-                        ax: 0,
-                        ay: -30,
-                        font: { color: 'green' }
-                    });
-                }
-
-                const layout = {
-                    title: 'Analisis Teknikal (1H)',
-                    xaxis: { rangeslider: { visible: false } },
-                    yaxis: { domain: [0.45, 1] },
-                    yaxis2: { domain: [0.3, 0.4], title: 'RSI' },
-                    yaxis3: { domain: [0.15, 0.25], title: 'MACD' },
-                    yaxis4: { domain: [0, 0.1], title: 'Volume' },
-                    shapes: shapes,
-                    annotations: annotations,
-                    template: 'plotly_dark'
-                };
-
-                Plotly.newPlot('chart', [
-                    traceCandle, traceSMA20, traceSMA50, traceSMA200, traceBBUpper, traceBBLower,
-                    traceRSI, traceMACD, traceMACDSignal, traceMACDHist, traceVolume
-                ], layout);
             }
         });
     </script>
