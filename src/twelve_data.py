@@ -15,7 +15,7 @@ load_dotenv(env_path)
 API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 BASE_URL = "https://api.twelvedata.com"
 
-REQUEST_DELAY = 8  # detik antara request (free tier)
+REQUEST_DELAY = 8
 last_request_time = 0
 
 def rate_limit():
@@ -28,6 +28,7 @@ def rate_limit():
     last_request_time = time.time()
 
 def get_real_time_price(symbol):
+    """Mendapatkan harga real-time sederhana"""
     rate_limit()
     url = f"{BASE_URL}/price"
     params = {"symbol": symbol, "apikey": API_KEY, "dp": 5}
@@ -45,6 +46,7 @@ def get_real_time_price(symbol):
         return None
 
 def get_quote(symbol):
+    """Mendapatkan quote lengkap (bid, ask, volume, dll) – dengan fallback ke price jika gagal"""
     rate_limit()
     url = f"{BASE_URL}/quote"
     params = {"symbol": symbol, "apikey": API_KEY, "dp": 5}
@@ -56,9 +58,33 @@ def get_quote(symbol):
             return data
         else:
             logging.error(f"Quote error: {data.get('message', 'Unknown error')}")
+            # Fallback: buat quote sederhana dari price
+            price = get_real_time_price(symbol)
+            if price:
+                return {
+                    "symbol": symbol,
+                    "bid": price,
+                    "ask": price,
+                    "price": price,
+                    "change": None,
+                    "percent_change": None,
+                    "volume": None
+                }
             return None
     except Exception as e:
         logging.error(f"Error fetching quote for {symbol}: {e}")
+        # Fallback ke price
+        price = get_real_time_price(symbol)
+        if price:
+            return {
+                "symbol": symbol,
+                "bid": price,
+                "ask": price,
+                "price": price,
+                "change": None,
+                "percent_change": None,
+                "volume": None
+            }
         return None
 
 def get_historical_data(symbol, interval="1h", outputsize=5000, start_date=None, end_date=None):
@@ -85,7 +111,7 @@ def get_historical_data(symbol, interval="1h", outputsize=5000, start_date=None,
             df = pd.DataFrame(data["values"])
             df["datetime"] = pd.to_datetime(df["datetime"])
             df.set_index("datetime", inplace=True)
-            # Rename kolom ke format Title Case
+            # Ubah nama kolom ke format yang kita pakai (Capitalized)
             df.rename(columns={
                 "open": "Open",
                 "high": "High",
@@ -95,8 +121,7 @@ def get_historical_data(symbol, interval="1h", outputsize=5000, start_date=None,
             }, inplace=True)
             # Konversi ke numeric
             for col in ["Open", "High", "Low", "Close", "Volume"]:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                df[col] = pd.to_numeric(df[col], errors='coerce')
             df.dropna(inplace=True)
             return df
         elif "code" in data:
@@ -118,7 +143,7 @@ def download_and_cache(symbol, interval, output_folder="data/api"):
         if datetime.now() - file_time < timedelta(days=1):
             logging.info(f"Menggunakan cached data: {filename}")
             df = pd.read_csv(filepath, index_col=0, parse_dates=True)
-            # Pastikan kolom Title Case
+            # Pastikan kolom berformat Title Case (Open, High, dll)
             df.columns = [col.capitalize() for col in df.columns]
             return df
 
@@ -137,7 +162,7 @@ def get_intraday_data(symbol, interval="1h", days=30):
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
 
-    if interval in ["1min", "5min", "15min", "30min"] and days > 7:
+    if interval in ["1min", "5min"] and days > 7:
         chunk_days = 7
         chunks = []
         current_start = start_date
