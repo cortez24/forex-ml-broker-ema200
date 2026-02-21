@@ -14,20 +14,14 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # ===================== KONFIGURASI =====================
 DATA_FOLDER = os.path.join(os.path.dirname(__file__), 'data')
-# Timeframe untuk analisis multi-timeframe (bobot diberikan sesuai)
 TIMEFRAMES = ["1D", "4h", "1h", "15min"]
 WEIGHT_TECHNICAL = 0.7
 WEIGHT_FUNDAMENTAL = 0.3
 MAX_DATA_ROWS = 500
-# Bobot untuk masing-masing timeframe (total harus 1.0)
 TECH_WEIGHTS = {'1D': 0.3, '4h': 0.3, '1h': 0.25, '15min': 0.15}
 
 # ===================== FUNGSI BANTU =====================
 def ensure_columns(df):
-    """
-    Memastikan dataframe memiliki kolom yang diperlukan.
-    Jika kolom 'Volume' tidak ada, tambahkan dengan nilai 0.
-    """
     required = ['Open', 'High', 'Low', 'Close', 'Volume']
     for col in required:
         if col not in df.columns:
@@ -308,20 +302,16 @@ def analyze_pair(pair, news_text):
 
     final_dir, final_conf = combine_technical_fundamental(tech_dir, tech_conf, fund_dir, fund_conf)
 
-    # Entry dari timeframe terkecil (15min) jika ada, fallback ke 1h
     df_entry = data.get('15min') or data.get('1h')
     entry_price = sl = tp = None
     if df_entry is not None and not df_entry.empty:
-        # Untuk entry, kita menggunakan harga terakhir dari dataframe (tanpa real-time di sini)
         last_row = df_entry.iloc[-1]
         entry_price = float(last_row['Close'])
-        # Cari sinyal untuk timeframe entry
         entry_tf = '15min' if '15min' in signals and signals['15min'] else '1h'
         atr_entry = signals[entry_tf]['atr'] if entry_tf in signals and signals[entry_tf] else 0
         if final_dir in ["BUY", "SELL"] and atr_entry > 0:
             sl, tp = calculate_sl_tp(entry_price, atr_entry, final_dir)
 
-    # Data chart dari 1h (bisa disesuaikan)
     chart_data = None
     df_chart = data.get('1h')
     if df_chart is not None and not df_chart.empty:
@@ -374,13 +364,11 @@ def analyze_pair(pair, news_text):
 def get_live_prediction(pair):
     api_symbol = f"{pair[:3]}/{pair[3:]}"
     
-    # Dapatkan quote dan harga real-time
     quote = get_quote(api_symbol)
     current_price = get_real_time_price(api_symbol)
     if current_price is None:
         return {"error": "Gagal mendapatkan harga real-time"}
     
-    # Ambil data historis dari cache atau API untuk semua timeframe
     df_15min = download_and_cache(api_symbol, "15min")
     df_1h = download_and_cache(api_symbol, "1h")
     df_4h = download_and_cache(api_symbol, "4h")
@@ -389,7 +377,6 @@ def get_live_prediction(pair):
     if any(x is None for x in [df_15min, df_1h, df_4h, df_1d]):
         return {"error": "Gagal mendapatkan data historis untuk salah satu timeframe"}
     
-    # Pastikan kolom lengkap
     df_15min = ensure_columns(df_15min)
     df_1h = ensure_columns(df_1h)
     df_4h = ensure_columns(df_4h)
@@ -397,30 +384,24 @@ def get_live_prediction(pair):
     if any(x is None for x in [df_15min, df_1h, df_4h, df_1d]):
         return {"error": "Data historis tidak memiliki kolom yang diperlukan"}
     
-    # Untuk M15, kita akan membuat candle terkini (incomplete) berdasarkan real-time price
-    # Ambil candle terakhir yang sudah ditutup
     last_candle = df_15min.iloc[-1].copy()
     last_time = df_15min.index[-1]
-    # Perkiraan candle baru: open = close sebelumnya, close = current_price, high = max(high sebelumnya, current), low = min(low sebelumnya, current)
     new_open = last_candle['Close']
     new_high = max(last_candle['High'], current_price)
     new_low = min(last_candle['Low'], current_price)
     new_close = current_price
-    new_volume = 0  # volume tidak diketahui
+    new_volume = 0
     
-    # Buat dataframe untuk candle baru
     new_candle = pd.DataFrame({
         'Open': [new_open],
         'High': [new_high],
         'Low': [new_low],
         'Close': [new_close],
         'Volume': [new_volume]
-    }, index=[last_time + timedelta(minutes=15)])  # perkiraan timestamp berikutnya
+    }, index=[last_time + timedelta(minutes=15)])
     
-    # Gabungkan dengan data historis
     df_15min_extended = pd.concat([df_15min, new_candle])
     
-    # Sekarang siapkan dictionary data untuk semua timeframe
     data_dict = {
         '1D': df_1d,
         '4h': df_4h,
@@ -431,7 +412,6 @@ def get_live_prediction(pair):
     signals = multi_timeframe_analysis(data_dict)
     tech_dir, tech_conf = combine_technical_signals(signals)
     
-    # Untuk SL/TP, kita gunakan ATR dari M15 (candle extended)
     atr_15min = signals['15min']['atr'] if signals['15min'] else 0
     if atr_15min > 0:
         sl, tp = calculate_sl_tp(current_price, atr_15min, tech_dir)
@@ -450,7 +430,7 @@ def get_live_prediction(pair):
         'prediction': {
             'direction': tech_dir,
             'confidence': round(tech_conf, 2),
-            'entry': round(current_price, 5),  # entry menggunakan harga real-time
+            'entry': round(current_price, 5),
             'sl': round(sl, 5) if sl else None,
             'tp': round(tp, 5) if tp else None,
             'atr': round(atr_15min, 5)
