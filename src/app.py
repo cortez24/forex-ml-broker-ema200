@@ -1,5 +1,7 @@
 import os
 import re
+import webbrowser
+import tempfile
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -34,11 +36,32 @@ def load_data(pair, tf):
         print(f"File {filepath} tidak ditemukan. Lewati.")
         return None
 
-    df = pd.read_csv(filepath, parse_dates={'Datetime': ['Date', 'Time']},
-                     index_col='Datetime', dayfirst=True)
+    # Baca CSV tanpa parse_dates (untuk kompatibilitas)
+    df = pd.read_csv(filepath)
+
+    # Gabungkan kolom Date dan Time menjadi datetime
+    if 'Date' in df.columns and 'Time' in df.columns:
+        df['Datetime'] = pd.to_datetime(df['Date'] + ' ' + df['Time'], dayfirst=True, errors='coerce')
+    else:
+        # Jika kolom sudah bernama 'Datetime' atau format lain, sesuaikan di sini
+        if 'Datetime' in df.columns:
+            df['Datetime'] = pd.to_datetime(df['Datetime'], dayfirst=True, errors='coerce')
+        else:
+            print(f"Kolom Date dan Time tidak ditemukan di {filepath}. Lewati.")
+            return None
+
+    df.set_index('Datetime', inplace=True)
     df.sort_index(inplace=True)
-    for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    # Pastikan kolom numerik
+    required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+    for col in required_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        else:
+            print(f"Kolom {col} tidak ditemukan di {filepath}. Lewati.")
+            return None
+
     df.dropna(inplace=True)
     return df
 
@@ -233,7 +256,6 @@ def evaluate_fundamental(pair, currency_sentiment):
     quote_sent = currency_sentiment.get(quote, 0.0)
     
     # Logika: sentimen positif untuk base => bullish (buy), positif untuk quote => bearish (sell)
-    # Sentimen dianggap sebagai kekuatan permintaan mata uang.
     # Selisih sentimen: base_sent - quote_sent => positif -> beli, negatif -> jual.
     diff = base_sent - quote_sent
     
@@ -289,7 +311,7 @@ def calculate_sl_tp(entry_price, atr, direction):
 
 # ===================== VISUALISASI =====================
 def plot_chart(pair, tf, df, signals, direction, entry, sl, tp):
-    """Plot candlestick chart dengan indikator dan level entry."""
+    """Plot candlestick chart dengan indikator dan level entry, tampilkan di browser."""
     df = df.copy()
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True,
                         vertical_spacing=0.05, row_heights=[0.5, 0.2, 0.15, 0.15])
@@ -337,7 +359,17 @@ def plot_chart(pair, tf, df, signals, direction, entry, sl, tp):
     fig.update_layout(title=f'{pair} - {tf} - Analisis Teknikal + Fundamental',
                       xaxis_rangeslider_visible=False,
                       template='plotly_dark')
-    fig.show()
+
+    # Tampilkan di browser
+    try:
+        # Coba dengan metode default Plotly
+        fig.show()
+    except Exception as e:
+        # Fallback: simpan ke file HTML sementara dan buka dengan browser
+        with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as tmp:
+            fig.write_html(tmp.name)
+            webbrowser.open('file://' + tmp.name)
+        print(f"Chart disimpan sebagai {tmp.name} dan dibuka di browser.")
 
 # ===================== PANDUAN FUNDAMENTAL =====================
 def fundamental_info(pair):
