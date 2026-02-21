@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Backtest Forex Analyzer</title>
+    <title>Backtest - Forex Analyzer Pro</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -12,7 +12,7 @@
             padding: 20px;
         }
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: auto;
         }
         h1 {
@@ -45,6 +45,11 @@
             border-radius: 8px;
             margin-bottom: 20px;
             display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .form-row {
+            display: flex;
             flex-wrap: wrap;
             gap: 15px;
             align-items: center;
@@ -66,9 +71,35 @@
             border: none;
             cursor: pointer;
             font-weight: bold;
+            padding: 10px 20px;
         }
         button:hover {
             background: #45a049;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        .radio-group {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        .radio-group label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-weight: normal;
+        }
+        #apiOptions {
+            background: #3d3d3d;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
         }
         .stats {
             background: #2d2d2d;
@@ -114,31 +145,27 @@
         }
         .loading {
             display: inline-block;
-            width: 30px;
-            height: 30px;
+            width: 20px;
+            height: 20px;
             border: 3px solid rgba(255,255,255,.3);
             border-radius: 50%;
             border-top-color: #4CAF50;
             animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
         }
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
-        #apiOptions {
-            margin-top: 10px;
-            padding: 10px;
-            background: #3d3d3d;
-            border-radius: 4px;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            align-items: center;
+        #loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📈 Backtest Forex Analyzer</h1>
+        <h1>📊 Backtest Forex Analyzer</h1>
         
         <div class="nav">
             <a href="/">Analisis Teknikal</a>
@@ -147,25 +174,18 @@
         </div>
         
         <div class="form-group">
-            <label>Pair:</label>
-            <select id="pair">
-                <option value="EURUSD">EUR/USD</option>
-                <option value="GBPUSD">GBP/USD</option>
-                <option value="EURJPY">EUR/JPY</option>
-                <option value="GBPJPY">GBP/JPY</option>
-                <option value="CHFJPY">CHF/JPY</option>
-            </select>
-
-            <label>Start Date:</label>
-            <input type="date" id="start_date" value="2023-01-01">
-
-            <label>End Date:</label>
-            <input type="date" id="end_date" value="2024-01-01">
-
-            <label>Min Confidence (%):</label>
-            <input type="number" id="min_confidence" value="65" min="0" max="100" step="1">
-
-            <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center;">
+            <div class="form-row">
+                <label>Pair:</label>
+                <select id="pair">
+                    <option value="EURUSD">EUR/USD</option>
+                    <option value="GBPUSD">GBP/USD</option>
+                    <option value="EURJPY">EUR/JPY</option>
+                    <option value="GBPJPY">GBP/JPY</option>
+                    <option value="CHFJPY">CHF/JPY</option>
+                </select>
+            </div>
+            
+            <div class="radio-group">
                 <label>
                     <input type="radio" name="dataSource" value="local" checked> Data Lokal (CSV)
                 </label>
@@ -173,7 +193,7 @@
                     <input type="radio" name="dataSource" value="api"> Data Real-time (Twelve Data API)
                 </label>
             </div>
-
+            
             <div id="apiOptions" style="display: none;">
                 <label>Interval:</label>
                 <select id="apiInterval">
@@ -185,149 +205,174 @@
                 <label>Periode (hari):</label>
                 <input type="number" id="apiDays" value="90" min="30" max="365">
             </div>
-
-            <button id="runBtn">Jalankan Backtest</button>
-            <div id="loading" style="display: none; margin-left: 10px;">
-                <div class="loading"></div>
+            
+            <div id="localOptions">
+                <div class="form-row">
+                    <label>Start Date:</label>
+                    <input type="date" id="start_date" value="2023-01-01">
+                    
+                    <label>End Date:</label>
+                    <input type="date" id="end_date" value="2024-01-01">
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <label>Min Confidence (%):</label>
+                <input type="number" id="min_confidence" value="65" min="0" max="100" step="1">
+                
+                <button id="runBtn">Jalankan Backtest</button>
             </div>
         </div>
-
+        
+        <div id="loading">
+            <span class="loading"></span> Memproses backtest, mohon tunggu...
+        </div>
+        
         <div id="results" style="display: none;"></div>
         <div id="error" class="error" style="display: none;"></div>
     </div>
 
     <script>
-        // Toggle API options
-        document.querySelectorAll('input[name="dataSource"]').forEach(radio => {
-            radio.addEventListener('change', function() {
-                document.getElementById('apiOptions').style.display = 
-                    this.value === 'api' ? 'block' : 'none';
-            });
-        });
-
-        // Fungsi untuk menjalankan backtest
-        async function runBacktest() {
-            const pair = document.getElementById('pair').value;
-            const startDate = document.getElementById('start_date').value;
-            const endDate = document.getElementById('end_date').value;
-            const minConfidence = document.getElementById('min_confidence').value;
-            const dataSource = document.querySelector('input[name="dataSource"]:checked').value;
+        document.addEventListener('DOMContentLoaded', function() {
+            // Toggle opsi berdasarkan sumber data
+            const localRadio = document.querySelector('input[value="local"]');
+            const apiRadio = document.querySelector('input[value="api"]');
+            const apiOptions = document.getElementById('apiOptions');
+            const localOptions = document.getElementById('localOptions');
             
-            let url = '/backtest';
-            let payload = { pair, min_confidence: minConfidence };
-            
-            if (dataSource === 'api') {
-                url = '/api/backtest-realtime';
-                payload.interval = document.getElementById('apiInterval').value;
-                payload.days_back = document.getElementById('apiDays').value;
-            } else {
-                payload.start_date = startDate;
-                payload.end_date = endDate;
-            }
-            
-            // Tampilkan loading
-            document.getElementById('loading').style.display = 'inline-block';
-            document.getElementById('results').style.display = 'none';
-            document.getElementById('error').style.display = 'none';
-            
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                
-                const data = await response.json();
-                
-                if (data.error) {
-                    document.getElementById('error').textContent = 'Error: ' + data.error;
-                    document.getElementById('error').style.display = 'block';
-                } else if (data.message) {
-                    document.getElementById('error').textContent = data.message;
-                    document.getElementById('error').style.display = 'block';
+            function toggleOptions() {
+                if (apiRadio.checked) {
+                    apiOptions.style.display = 'flex';
+                    localOptions.style.display = 'none';
                 } else {
-                    displayResults(data);
+                    apiOptions.style.display = 'none';
+                    localOptions.style.display = 'block';
                 }
-            } catch (err) {
-                document.getElementById('error').textContent = 'Gagal terhubung ke server.';
-                document.getElementById('error').style.display = 'block';
-            } finally {
-                document.getElementById('loading').style.display = 'none';
             }
-        }
-
-        // Fungsi menampilkan hasil
-        function displayResults(data) {
+            
+            localRadio.addEventListener('change', toggleOptions);
+            apiRadio.addEventListener('change', toggleOptions);
+            
+            // Fungsi backtest
+            const runBtn = document.getElementById('runBtn');
+            const loadingDiv = document.getElementById('loading');
             const resultsDiv = document.getElementById('results');
+            const errorDiv = document.getElementById('error');
             
-            let html = `
-                <div class="stats">
-                    <div class="stat-item">
-                        <div>Total Trades</div>
-                        <div class="stat-value">${data.total_trades}</div>
-                    </div>
-                    <div class="stat-item">
-                        <div>Win Rate</div>
-                        <div class="stat-value">${data.win_rate}%</div>
-                    </div>
-                    <div class="stat-item">
-                        <div>Total Profit</div>
-                        <div class="stat-value">${data.total_profit_pct}%</div>
-                    </div>
-                    <div class="stat-item">
-                        <div>Avg Profit</div>
-                        <div class="stat-value">${data.avg_profit_pct}%</div>
-                    </div>
-                    <div class="stat-item">
-                        <div>Profit Factor</div>
-                        <div class="stat-value">${data.profit_factor}</div>
-                    </div>
-                    <div class="stat-item">
-                        <div>Max Drawdown</div>
-                        <div class="stat-value">${data.max_drawdown_pct}%</div>
-                    </div>
-                </div>
-                <h3 style="margin-top: 20px;">20 Trades Terakhir</h3>
-                <table>
-                    <tr>
-                        <th>Entry Time</th>
-                        <th>Direction</th>
-                        <th>Entry</th>
-                        <th>SL</th>
-                        <th>TP</th>
-                        <th>Exit Time</th>
-                        <th>Result</th>
-                        <th>Profit %</th>
-                    </tr>
-            `;
-
-            data.trades.forEach(t => {
-                html += `
-                    <tr>
-                        <td>${t.entry_time}</td>
-                        <td>${t.direction}</td>
-                        <td>${t.entry_price.toFixed(5)}</td>
-                        <td>${t.sl.toFixed(5)}</td>
-                        <td>${t.tp.toFixed(5)}</td>
-                        <td>${t.exit_time}</td>
-                        <td class="${t.win ? 'win' : 'loss'}">${t.win ? 'WIN' : 'LOSS'}</td>
-                        <td>${t.profit_pct.toFixed(2)}%</td>
-                    </tr>
-                `;
-            });
-
-            html += '</table>';
+            runBtn.addEventListener('click', runBacktest);
             
-            if (data.data_period) {
-                html += `<p><small>Data periode: ${data.data_period}</small></p>`;
+            async function runBacktest() {
+                const pair = document.getElementById('pair').value;
+                const minConfidence = document.getElementById('min_confidence').value;
+                const dataSource = document.querySelector('input[name="dataSource"]:checked').value;
+                
+                let url = '/backtest';
+                let payload = { pair, min_confidence: minConfidence };
+                
+                if (dataSource === 'api') {
+                    url = '/api/backtest-realtime';
+                    payload.interval = document.getElementById('apiInterval').value;
+                    payload.days_back = document.getElementById('apiDays').value;
+                } else {
+                    const startDate = document.getElementById('start_date').value;
+                    const endDate = document.getElementById('end_date').value;
+                    payload.start_date = startDate;
+                    payload.end_date = endDate;
+                }
+                
+                // Tampilkan loading
+                loadingDiv.style.display = 'block';
+                resultsDiv.style.display = 'none';
+                errorDiv.style.display = 'none';
+                runBtn.disabled = true;
+                
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        errorDiv.textContent = 'Error: ' + data.error;
+                        errorDiv.style.display = 'block';
+                    } else if (data.message) {
+                        errorDiv.textContent = data.message;
+                        errorDiv.style.display = 'block';
+                    } else {
+                        displayResults(data);
+                    }
+                } catch (err) {
+                    errorDiv.textContent = 'Gagal terhubung ke server.';
+                    errorDiv.style.display = 'block';
+                } finally {
+                    loadingDiv.style.display = 'none';
+                    runBtn.disabled = false;
+                }
             }
             
-            resultsDiv.innerHTML = html;
-            resultsDiv.style.display = 'block';
-        }
-
-        // Event listener tombol
-        document.getElementById('runBtn').addEventListener('click', runBacktest);
+            function displayResults(data) {
+                let html = `
+                    <div class="stats">
+                        <div class="stat-item">
+                            <div>Total Trades</div>
+                            <div class="stat-value">${data.total_trades}</div>
+                        </div>
+                        <div class="stat-item">
+                            <div>Win Rate</div>
+                            <div class="stat-value">${data.win_rate}%</div>
+                        </div>
+                        <div class="stat-item">
+                            <div>Total Profit</div>
+                            <div class="stat-value">${data.total_profit_pct}%</div>
+                        </div>
+                        <div class="stat-item">
+                            <div>Avg Profit</div>
+                            <div class="stat-value">${data.avg_profit_pct}%</div>
+                        </div>
+                        <div class="stat-item">
+                            <div>Profit Factor</div>
+                            <div class="stat-value">${data.profit_factor}</div>
+                        </div>
+                        <div class="stat-item">
+                            <div>Max Drawdown</div>
+                            <div class="stat-value">${data.max_drawdown_pct}%</div>
+                        </div>
+                    </div>
+                `;
+                
+                if (data.data_period) {
+                    html += `<p>Periode data: ${data.data_period}</p>`;
+                }
+                
+                if (data.trades && data.trades.length > 0) {
+                    html += '<h3 style="margin-top: 20px;">20 Trades Terakhir</h3>';
+                    html += '<table><tr><th>Entry Time</th><th>Direction</th><th>Entry</th><th>SL</th><th>TP</th><th>Exit Time</th><th>Result</th><th>Profit %</th></tr>';
+                    
+                    data.trades.forEach(t => {
+                        html += `
+                            <tr>
+                                <td>${t.entry_time}</td>
+                                <td>${t.direction}</td>
+                                <td>${t.entry_price.toFixed(5)}</td>
+                                <td>${t.sl.toFixed(5)}</td>
+                                <td>${t.tp.toFixed(5)}</td>
+                                <td>${t.exit_time}</td>
+                                <td class="${t.win ? 'win' : 'loss'}">${t.win ? 'WIN' : 'LOSS'}</td>
+                                <td>${t.profit_pct.toFixed(2)}%</td>
+                            </tr>
+                        `;
+                    });
+                    
+                    html += '</table>';
+                }
+                
+                resultsDiv.innerHTML = html;
+                resultsDiv.style.display = 'block';
+            }
+        });
     </script>
 </body>
 </html>
