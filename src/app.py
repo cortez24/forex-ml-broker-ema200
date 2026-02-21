@@ -39,7 +39,6 @@ def backtest():
             start_date = data.get('start_date', '2023-01-01')
             end_date = data.get('end_date', '2024-01-01')
             min_confidence = float(data.get('min_confidence', 65))
-            # Gunakan fungsi backtest lokal (masih menggunakan 1D dan 4h saja untuk kesederhanaan)
             result = analyzer.run_backtest(pair, start_date, end_date, min_confidence)
             return jsonify(result)
         except Exception as e:
