@@ -91,7 +91,6 @@ def detect_signals(df):
     sell_score = 0
     reasons = []
 
-    # Cek keberadaan kolom sebelum akses
     # 1. SMA
     if 'sma_20' in df.columns and 'sma_50' in df.columns:
         if pd.notna(last['sma_20']) and pd.notna(last['sma_50']):
@@ -310,22 +309,27 @@ def analyze_pair(pair, news_text):
     chart_data = None
     if df_1h is not None and not df_1h.empty:
         df_1h_plot = add_indicators(df_1h.copy()).reset_index()
+        
+        # Fungsi untuk mengganti NaN dengan None (agar JSON valid)
+        def clean_series(series, decimals=5):
+            return [None if pd.isna(x) else round(x, decimals) for x in series]
+        
         chart_data = {
             'time': df_1h_plot['Datetime'].dt.strftime('%Y-%m-%d %H:%M').tolist(),
-            'open': df_1h_plot['Open'].round(5).tolist(),
-            'high': df_1h_plot['High'].round(5).tolist(),
-            'low': df_1h_plot['Low'].round(5).tolist(),
-            'close': df_1h_plot['Close'].round(5).tolist(),
-            'volume': df_1h_plot['Volume'].tolist(),
-            'sma20': df_1h_plot['sma_20'].round(5).tolist(),
-            'sma50': df_1h_plot['sma_50'].round(5).tolist(),
-            'sma200': df_1h_plot['sma_200'].round(5).tolist(),
-            'bb_upper': df_1h_plot['volatility_bbh'].round(5).tolist(),
-            'bb_lower': df_1h_plot['volatility_bbl'].round(5).tolist(),
-            'rsi': df_1h_plot['momentum_rsi'].round(2).tolist(),
-            'macd': df_1h_plot['trend_macd'].round(5).tolist(),
-            'macd_signal': df_1h_plot['trend_macd_signal'].round(5).tolist(),
-            'macd_hist': df_1h_plot['trend_macd_diff'].round(5).tolist()
+            'open': clean_series(df_1h_plot['Open']),
+            'high': clean_series(df_1h_plot['High']),
+            'low': clean_series(df_1h_plot['Low']),
+            'close': clean_series(df_1h_plot['Close']),
+            'volume': clean_series(df_1h_plot['Volume'], decimals=0),  # volume integer
+            'sma20': clean_series(df_1h_plot['sma_20']),
+            'sma50': clean_series(df_1h_plot['sma_50']),
+            'sma200': clean_series(df_1h_plot['sma_200']),
+            'bb_upper': clean_series(df_1h_plot['volatility_bbh']),
+            'bb_lower': clean_series(df_1h_plot['volatility_bbl']),
+            'rsi': clean_series(df_1h_plot['momentum_rsi'], decimals=2),
+            'macd': clean_series(df_1h_plot['trend_macd']),
+            'macd_signal': clean_series(df_1h_plot['trend_macd_signal']),
+            'macd_hist': clean_series(df_1h_plot['trend_macd_diff'])
         }
 
     result = {
