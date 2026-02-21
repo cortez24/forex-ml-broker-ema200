@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forex Analyzer Pro</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e1e;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #4CAF50;
+            text-align: center;
+        }
+        .input-panel {
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        select, textarea, button {
+            background: #3d3d3d;
+            color: #e0e0e0;
+            border: 1px solid #555;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        textarea {
+            flex: 1;
+            min-width: 300px;
+            resize: vertical;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            padding: 10px 20px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .result-panel {
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .direction {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .buy { color: #4CAF50; }
+        .sell { color: #f44336; }
+        .neutral { color: #ff9800; }
+        .levels {
+            display: flex;
+            gap: 30px;
+            margin: 15px 0;
+            font-size: 18px;
+        }
+        .level-item {
+            background: #3d3d3d;
+            padding: 10px 15px;
+            border-radius: 4px;
+        }
+        .level-item span {
+            color: #aaa;
+            margin-right: 10px;
+        }
+        .chart-container {
+            height: 600px;
+            margin-top: 20px;
+        }
+        .sentiment {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .sentiment-item {
+            background: #3d3d3d;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+        .positive { color: #4CAF50; }
+        .negative { color: #f44336; }
+        .error {
+            color: #f44336;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Forex Analyzer Pro</h1>
+        
+        <div class="input-panel">
+            <select id="pair">
+                <option value="EURUSD">EUR/USD</option>
+                <option value="GBPUSD">GBP/USD</option>
+                <option value="EURJPY">EUR/JPY</option>
+                <option value="GBPJPY">GBP/JPY</option>
+                <option value="CHFJPY">CHF/JPY</option>
+            </select>
+            
+            <textarea id="news" placeholder="Masukkan berita fundamental (kosongkan jika tidak ada)...
+Contoh: ECB menaikkan suku bunga 25bps, ini positif untuk EUR. USD melemah karena data tenaga kerja buruk." rows="3"></textarea>
+            
+            <button id="analyzeBtn">Analisis Sekarang</button>
+        </div>
+
+        <div id="result" class="result-panel" style="display: none;">
+            <h2>Hasil Analisis untuk <span id="pairName"></span></h2>
+            <div id="direction" class="direction"></div>
+            
+            <div class="levels">
+                <div class="level-item"><span>Entry:</span> <span id="entry"></span></div>
+                <div class="level-item"><span>Stop Loss:</span> <span id="sl"></span></div>
+                <div class="level-item"><span>Take Profit:</span> <span id="tp"></span></div>
+            </div>
+
+            <div style="margin: 10px 0;">
+                <strong>Teknikal:</strong> <span id="techDir"></span> (<span id="techConf"></span>%)<br>
+                <strong>Fundamental:</strong> <span id="fundDir"></span> (<span id="fundConf"></span>%)<br>
+                <strong>Keyakinan Gabungan:</strong> <span id="finalConf"></span>%
+            </div>
+
+            <div id="sentimentContainer" class="sentiment"></div>
+
+            <div id="reasonsContainer" style="margin-top: 15px;">
+                <h3>Analisis Teknikal per Timeframe</h3>
+                <div id="reasons"></div>
+            </div>
+        </div>
+
+        <div id="chart" class="chart-container"></div>
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        document.getElementById('analyzeBtn').addEventListener('click', async () => {
+            const pair = document.getElementById('pair').value;
+            const news = document.getElementById('news').value;
+            
+            document.getElementById('result').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('chart').innerHTML = '';
+
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pair, news })
+                });
+                const data = await response.json();
+                
+                if (data.error) {
+                    document.getElementById('error').textContent = 'Error: ' + data.error;
+                    document.getElementById('error').style.display = 'block';
+                    return;
+                }
+
+                displayResults(data);
+                if (data.chart_data) {
+                    drawChart(data.chart_data, data.entry, data.sl, data.tp);
+                }
+            } catch (err) {
+                document.getElementById('error').textContent = 'Gagal terhubung ke server.';
+                document.getElementById('error').style.display = 'block';
+            }
+        });
+
+        function displayResults(data) {
+            document.getElementById('pairName').textContent = data.pair;
+            
+            const dirEl = document.getElementById('direction');
+            dirEl.textContent = `REKOMENDASI: ${data.final_direction}`;
+            dirEl.className = `direction ${data.final_direction.toLowerCase()}`;
+            
+            document.getElementById('entry').textContent = data.entry || '-';
+            document.getElementById('sl').textContent = data.sl || '-';
+            document.getElementById('tp').textContent = data.tp || '-';
+            
+            document.getElementById('techDir').textContent = data.technical.direction;
+            document.getElementById('techConf').textContent = data.technical.confidence;
+            document.getElementById('fundDir').textContent = data.fundamental.direction;
+            document.getElementById('fundConf').textContent = data.fundamental.confidence;
+            document.getElementById('finalConf').textContent = data.final_confidence;
+
+            // Sentimen mata uang
+            const sentimentDiv = document.getElementById('sentimentContainer');
+            sentimentDiv.innerHTML = '<strong>Sentimen Fundamental:</strong> ';
+            if (data.currency_sentiment && Object.keys(data.currency_sentiment).length > 0) {
+                for (const [curr, score] of Object.entries(data.currency_sentiment)) {
+                    if (score !== 0) {
+                        const cls = score > 0 ? 'positive' : 'negative';
+                        sentimentDiv.innerHTML += `<span class="sentiment-item ${cls}">${curr}: ${score > 0 ? '+' : ''}${score.toFixed(2)}</span> `;
+                    }
+                }
+            } else {
+                sentimentDiv.innerHTML += '<span class="sentiment-item">Tidak ada sentimen</span>';
+            }
+
+            // Alasan teknikal
+            const reasonsDiv = document.getElementById('reasons');
+            reasonsDiv.innerHTML = '';
+            for (const tf of ['1H', '4h', '1D']) {
+                if (data.signals && data.signals[tf]) {
+                    const s = data.signals[tf];
+                    reasonsDiv.innerHTML += `
+                        <div style="margin-bottom:10px;">
+                            <strong>${tf}</strong> - Buy: ${s.buy_score.toFixed(2)} | Sell: ${s.sell_score.toFixed(2)}<br>
+                            <small>${s.reasons.slice(0,3).join(', ')}</small>
+                        </div>
+                    `;
+                }
+            }
+
+            document.getElementById('result').style.display = 'block';
+        }
+
+        function drawChart(chartData, entry, sl, tp) {
+            const times = chartData.time.map(t => new Date(t));
+
+            // Candlestick
+            const traceCandle = {
+                x: times,
+                open: chartData.open,
+                high: chartData.high,
+                low: chartData.low,
+                close: chartData.close,
+                type: 'candlestick',
+                name: 'Harga',
+                increasing: { line: { color: '#4CAF50' } },
+                decreasing: { line: { color: '#f44336' } }
+            };
+
+            // SMA
+            const traceSMA20 = {
+                x: times,
+                y: chartData.sma20,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'SMA 20',
+                line: { color: 'blue', width: 1 }
+            };
+            const traceSMA50 = {
+                x: times,
+                y: chartData.sma50,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'SMA 50',
+                line: { color: 'orange', width: 1 }
+            };
+            const traceSMA200 = {
+                x: times,
+                y: chartData.sma200,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'SMA 200',
+                line: { color: 'red', width: 1 }
+            };
+
+            // Bollinger Bands
+            const traceBBUpper = {
+                x: times,
+                y: chartData.bb_upper,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'BB Upper',
+                line: { color: 'gray', width: 1, dash: 'dash' }
+            };
+            const traceBBLower = {
+                x: times,
+                y: chartData.bb_lower,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'BB Lower',
+                line: { color: 'gray', width: 1, dash: 'dash' }
+            };
+
+            // RSI
+            const traceRSI = {
+                x: times,
+                y: chartData.rsi,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'RSI',
+                line: { color: 'purple' },
+                yaxis: 'y2'
+            };
+
+            // MACD
+            const traceMACD = {
+                x: times,
+                y: chartData.macd,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'MACD',
+                line: { color: 'blue' },
+                yaxis: 'y3'
+            };
+            const traceMACDSignal = {
+                x: times,
+                y: chartData.macd_signal,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Signal',
+                line: { color: 'orange' },
+                yaxis: 'y3'
+            };
+            const traceMACDHist = {
+                x: times,
+                y: chartData.macd_hist,
+                type: 'bar',
+                name: 'Histogram',
+                marker: { color: 'rgba(100,100,255,0.5)' },
+                yaxis: 'y3'
+            };
+
+            // Volume
+            const traceVolume = {
+                x: times,
+                y: chartData.volume,
+                type: 'bar',
+                name: 'Volume',
+                marker: { color: 'rgba(255,255,255,0.3)' },
+                yaxis: 'y4'
+            };
+
+            // Garis entry, SL, TP
+            const shapes = [];
+            const annotations = [];
+            if (entry) {
+                shapes.push({
+                    type: 'line',
+                    x0: times[0],
+                    y0: entry,
+                    x1: times[times.length-1],
+                    y1: entry,
+                    line: { color: 'blue', width: 2, dash: 'solid' }
+                });
+                annotations.push({
+                    x: times[Math.floor(times.length/2)],
+                    y: entry,
+                    text: `Entry: ${entry}`,
+                    showarrow: true,
+                    arrowhead: 2,
+                    ax: 0,
+                    ay: -30,
+                    font: { color: 'blue' }
+                });
+            }
+            if (sl) {
+                shapes.push({
+                    type: 'line',
+                    x0: times[0],
+                    y0: sl,
+                    x1: times[times.length-1],
+                    y1: sl,
+                    line: { color: 'red', width: 2, dash: 'dash' }
+                });
+                annotations.push({
+                    x: times[Math.floor(times.length/2)],
+                    y: sl,
+                    text: `SL: ${sl}`,
+                    showarrow: true,
+                    arrowhead: 2,
+                    ax: 0,
+                    ay: -30,
+                    font: { color: 'red' }
+                });
+            }
+            if (tp) {
+                shapes.push({
+                    type: 'line',
+                    x0: times[0],
+                    y0: tp,
+                    x1: times[times.length-1],
+                    y1: tp,
+                    line: { color: 'green', width: 2, dash: 'dash' }
+                });
+                annotations.push({
+                    x: times[Math.floor(times.length/2)],
+                    y: tp,
+                    text: `TP: ${tp}`,
+                    showarrow: true,
+                    arrowhead: 2,
+                    ax: 0,
+                    ay: -30,
+                    font: { color: 'green' }
+                });
+            }
+
+            const layout = {
+                title: 'Analisis Teknikal (1H)',
+                xaxis: { rangeslider: { visible: false } },
+                yaxis: { domain: [0.45, 1] },
+                yaxis2: { domain: [0.3, 0.4], title: 'RSI' },
+                yaxis3: { domain: [0.15, 0.25], title: 'MACD' },
+                yaxis4: { domain: [0, 0.1], title: 'Volume' },
+                shapes: shapes,
+                annotations: annotations,
+                template: 'plotly_dark'
+            };
+
+            Plotly.newPlot('chart', [
+                traceCandle, traceSMA20, traceSMA50, traceSMA200, traceBBUpper, traceBBLower,
+                traceRSI, traceMACD, traceMACDSignal, traceMACDHist, traceVolume
+            ], layout);
+        }
+    </script>
+</body>
+</html>
