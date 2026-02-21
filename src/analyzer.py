@@ -58,6 +58,7 @@ def load_data(pair, tf):
         if len(df) > MAX_DATA_ROWS:
             df = df.iloc[-MAX_DATA_ROWS:]
 
+        logging.info(f"Loaded {len(df)} rows from {filename}")
         return df
     except Exception as e:
         logging.error(f"Gagal membaca {filepath}: {e}")
@@ -302,16 +303,24 @@ def analyze_pair(pair, news_text):
 
     final_dir, final_conf = combine_technical_fundamental(tech_dir, tech_conf, fund_dir, fund_conf)
 
-    df_entry = data.get('15min') or data.get('1h')
+    # Entry dari timeframe 15min jika ada, fallback ke 1h
+    df_entry = None
+    if '15min' in data and data['15min'] is not None and not data['15min'].empty:
+        df_entry = data['15min']
+    elif '1h' in data and data['1h'] is not None and not data['1h'].empty:
+        df_entry = data['1h']
+
     entry_price = sl = tp = None
-    if df_entry is not None and not df_entry.empty:
+    if df_entry is not None:
         last_row = df_entry.iloc[-1]
         entry_price = float(last_row['Close'])
-        entry_tf = '15min' if '15min' in signals and signals['15min'] else '1h'
+        # Cari sinyal untuk timeframe yang digunakan
+        entry_tf = '15min' if df_entry is data.get('15min') else '1h'
         atr_entry = signals[entry_tf]['atr'] if entry_tf in signals and signals[entry_tf] else 0
         if final_dir in ["BUY", "SELL"] and atr_entry > 0:
             sl, tp = calculate_sl_tp(entry_price, atr_entry, final_dir)
 
+    # Data chart dari 1h (bisa disesuaikan)
     chart_data = None
     df_chart = data.get('1h')
     if df_chart is not None and not df_chart.empty:
@@ -357,6 +366,262 @@ def analyze_pair(pair, news_text):
         },
         'currency_sentiment': {k: round(v, 2) for k, v in currency_sentiment.items() if v != 0},
         'chart_data': chart_data
+    }
+    return result
+
+# ===================== BACKTEST LOKAL =====================
+def run_backtest(pair, start_date, end_date, min_confidence=65, max_hold_candles=20):
+    logging.info(f"Memulai backtest lokal untuk {pair} dari {start_date} hingga {end_date}")
+
+    data_1d = load_data(pair, "1D")
+    data_4h = load_data(pair, "4h")
+
+    if data_1d is None or data_4h is None:
+        return {"error": "Data tidak lengkap"}
+
+    data_1d = data_1d.sort_index()
+    data_4h = data_4h.sort_index()
+
+    data_1d = data_1d.loc[start_date:end_date]
+    data_4h = data_4h.loc[start_date:end_date]
+
+    if data_4h.empty:
+        return {"error": "Tidak ada data 4H dalam rentang"}
+
+    min_history = 200
+    if len(data_4h) < min_history + 1:
+        return {"error": f"Data 4H terlalu sedikit, butuh minimal {min_history+1} candle"}
+
+    trades = []
+
+    for i in range(min_history, len(data_4h)):
+        df_4h_current = data_4h.iloc[:i+1].copy()
+        current_date = df_4h_current.index[-1]
+        df_1d_current = data_1d[data_1d.index <= current_date].copy()
+
+        if df_1d_current.empty:
+            continue
+
+        data_dict = {'1D': df_1d_current, '4h': df_4h_current}
+        signals = multi_timeframe_analysis(data_dict)
+        tech_dir, tech_conf = combine_technical_signals(signals)
+        fund_dir, fund_conf = "NEUTRAL", 50.0
+        final_dir, final_conf = combine_technical_fundamental(tech_dir, tech_conf, fund_dir, fund_conf)
+
+        if final_conf >= min_confidence and final_dir != "NEUTRAL":
+            entry_price = df_4h_current['Close'].iloc[-1]
+            atr = signals['4h']['atr'] if signals['4h'] else 0
+            if atr == 0:
+                continue
+            sl, tp = calculate_sl_tp(entry_price, atr, final_dir)
+
+            exit_idx = None
+            win = None
+            for j in range(i+1, min(i+1+max_hold_candles, len(data_4h))):
+                candle = data_4h.iloc[j]
+                if final_dir == "BUY":
+                    if candle['High'] >= tp:
+                        win = True
+                        exit_idx = j
+                        break
+                    elif candle['Low'] <= sl:
+                        win = False
+                        exit_idx = j
+                        break
+                else:
+                    if candle['Low'] <= tp:
+                        win = True
+                        exit_idx = j
+                        break
+                    elif candle['High'] >= sl:
+                        win = False
+                        exit_idx = j
+                        break
+
+            if exit_idx is not None:
+                if win:
+                    profit_pct = (tp - entry_price) / entry_price if final_dir == "BUY" else (entry_price - tp) / entry_price
+                else:
+                    profit_pct = (sl - entry_price) / entry_price if final_dir == "BUY" else (entry_price - sl) / entry_price
+
+                trades.append({
+                    'entry_time': str(df_4h_current.index[-1]),
+                    'direction': final_dir,
+                    'entry_price': entry_price,
+                    'sl': sl,
+                    'tp': tp,
+                    'exit_time': str(data_4h.index[exit_idx]),
+                    'win': win,
+                    'profit_pct': profit_pct * 100,
+                    'confidence': final_conf
+                })
+
+    total_trades = len(trades)
+    if total_trades == 0:
+        return {"message": "Tidak ada sinyal yang memenuhi syarat"}
+
+    wins = sum(1 for t in trades if t['win'])
+    losses = total_trades - wins
+    win_rate = wins / total_trades * 100
+    total_profit_pct = sum(t['profit_pct'] for t in trades)
+    avg_profit_pct = total_profit_pct / total_trades
+
+    total_profit = sum(t['profit_pct'] for t in trades if t['win'])
+    total_loss = abs(sum(t['profit_pct'] for t in trades if not t['win']))
+    profit_factor = total_profit / total_loss if total_loss != 0 else float('inf')
+
+    equity = 0
+    peak = 0
+    max_dd = 0
+    for t in trades:
+        equity += t['profit_pct']
+        if equity > peak:
+            peak = equity
+        dd = (peak - equity) / 100
+        if dd > max_dd:
+            max_dd = dd
+
+    result = {
+        'total_trades': total_trades,
+        'wins': wins,
+        'losses': losses,
+        'win_rate': round(win_rate, 2),
+        'total_profit_pct': round(total_profit_pct, 2),
+        'avg_profit_pct': round(avg_profit_pct, 2),
+        'profit_factor': round(profit_factor, 2),
+        'max_drawdown_pct': round(max_dd, 2),
+        'trades': trades[-20:]
+    }
+    return result
+
+# ===================== BACKTEST REAL-TIME (API) =====================
+def run_backtest_realtime(pair, interval="4h", days_back=90, min_confidence=65):
+    logging.info(f"Memulai backtest real-time untuk {pair} {interval} {days_back} days")
+    
+    api_symbol = f"{pair[:3]}/{pair[3:]}"
+    df = get_intraday_data(api_symbol, interval, days=days_back)
+    
+    if df is None or df.empty:
+        return {"error": "Gagal mendapatkan data dari API"}
+    
+    df = ensure_columns(df)
+    if df is None:
+        return {"error": "Data dari API tidak memiliki kolom yang diperlukan"}
+    
+    df_daily = df.resample('D').agg({
+        'Open': 'first',
+        'High': 'max',
+        'Low': 'min',
+        'Close': 'last',
+        'Volume': 'sum'
+    }).dropna()
+    
+    min_history = 200
+    if len(df) < min_history + 1:
+        return {"error": f"Data terlalu sedikit, butuh minimal {min_history+1} candle"}
+    
+    trades = []
+    
+    for i in range(min_history, len(df)):
+        df_4h_current = df.iloc[:i+1].copy()
+        current_date = df_4h_current.index[-1]
+        df_1d_current = df_daily[df_daily.index <= current_date].copy()
+        
+        if df_1d_current.empty:
+            continue
+        
+        data_dict = {'1D': df_1d_current, '4h': df_4h_current}
+        signals = multi_timeframe_analysis(data_dict)
+        tech_dir, tech_conf = combine_technical_signals(signals)
+        fund_dir, fund_conf = "NEUTRAL", 50.0
+        final_dir, final_conf = combine_technical_fundamental(tech_dir, tech_conf, fund_dir, fund_conf)
+        
+        if final_conf >= min_confidence and final_dir != "NEUTRAL":
+            entry_price = df_4h_current['Close'].iloc[-1]
+            atr = signals['4h']['atr'] if signals['4h'] else 0
+            if atr == 0:
+                continue
+            sl, tp = calculate_sl_tp(entry_price, atr, final_dir)
+            
+            max_hold = 20
+            exit_idx = None
+            win = None
+            
+            for j in range(i+1, min(i+1+max_hold, len(df))):
+                candle = df.iloc[j]
+                if final_dir == "BUY":
+                    if candle['High'] >= tp:
+                        win = True
+                        exit_idx = j
+                        break
+                    elif candle['Low'] <= sl:
+                        win = False
+                        exit_idx = j
+                        break
+                else:
+                    if candle['Low'] <= tp:
+                        win = True
+                        exit_idx = j
+                        break
+                    elif candle['High'] >= sl:
+                        win = False
+                        exit_idx = j
+                        break
+            
+            if exit_idx is not None:
+                if win:
+                    profit_pct = (tp - entry_price) / entry_price if final_dir == "BUY" else (entry_price - tp) / entry_price
+                else:
+                    profit_pct = (sl - entry_price) / entry_price if final_dir == "BUY" else (entry_price - sl) / entry_price
+                
+                trades.append({
+                    'entry_time': str(df_4h_current.index[-1]),
+                    'direction': final_dir,
+                    'entry_price': entry_price,
+                    'sl': sl,
+                    'tp': tp,
+                    'exit_time': str(df.index[exit_idx]),
+                    'win': win,
+                    'profit_pct': profit_pct * 100,
+                    'confidence': final_conf
+                })
+    
+    total_trades = len(trades)
+    if total_trades == 0:
+        return {"message": "Tidak ada sinyal yang memenuhi syarat"}
+    
+    wins = sum(1 for t in trades if t['win'])
+    losses = total_trades - wins
+    win_rate = wins / total_trades * 100
+    total_profit_pct = sum(t['profit_pct'] for t in trades)
+    avg_profit_pct = total_profit_pct / total_trades
+    
+    total_profit = sum(t['profit_pct'] for t in trades if t['win'])
+    total_loss = abs(sum(t['profit_pct'] for t in trades if not t['win']))
+    profit_factor = total_profit / total_loss if total_loss != 0 else float('inf')
+    
+    equity = 0
+    peak = 0
+    max_dd = 0
+    for t in trades:
+        equity += t['profit_pct']
+        if equity > peak:
+            peak = equity
+        dd = (peak - equity) / 100
+        if dd > max_dd:
+            max_dd = dd
+    
+    result = {
+        'total_trades': total_trades,
+        'wins': wins,
+        'losses': losses,
+        'win_rate': round(win_rate, 2),
+        'total_profit_pct': round(total_profit_pct, 2),
+        'avg_profit_pct': round(avg_profit_pct, 2),
+        'profit_factor': round(profit_factor, 2),
+        'max_drawdown_pct': round(max_dd, 2),
+        'trades': trades[-20:],
+        'data_period': f"{df.index[0]} to {df.index[-1]}"
     }
     return result
 
