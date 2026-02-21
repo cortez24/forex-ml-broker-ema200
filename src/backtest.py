@@ -1,285 +1,333 @@
-import pandas as pd
-import numpy as np
-from analyzer import load_data, add_indicators, detect_signals, combine_technical_signals, evaluate_fundamental, combine_technical_fundamental, calculate_sl_tp
-import logging
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backtest Forex Analyzer</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e1e;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+        h1 {
+            color: #4CAF50;
+            text-align: center;
+        }
+        .nav {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        .nav a {
+            color: #e0e0e0;
+            text-decoration: none;
+            padding: 8px 16px;
+            background: #2d2d2d;
+            border-radius: 4px;
+        }
+        .nav a:hover {
+            background: #3d3d3d;
+        }
+        .nav a.active {
+            background: #4CAF50;
+            color: white;
+        }
+        .form-group {
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+        }
+        label {
+            font-weight: bold;
+        }
+        select, input, button {
+            background: #3d3d3d;
+            color: #e0e0e0;
+            border: 1px solid #555;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .stats {
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .stat-item {
+            background: #3d3d3d;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #444;
+            padding: 10px;
+            text-align: center;
+        }
+        th {
+            background: #333;
+        }
+        .win { color: #4CAF50; }
+        .loss { color: #f44336; }
+        .error {
+            color: #f44336;
+            background: #3d3d3d;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .loading {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #4CAF50;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        #apiOptions {
+            margin-top: 10px;
+            padding: 10px;
+            background: #3d3d3d;
+            border-radius: 4px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📈 Backtest Forex Analyzer</h1>
+        
+        <div class="nav">
+            <a href="/">Analisis Teknikal</a>
+            <a href="/backtest" class="active">Backtest</a>
+            <a href="/live">Live Prediction</a>
+        </div>
+        
+        <div class="form-group">
+            <label>Pair:</label>
+            <select id="pair">
+                <option value="EURUSD">EUR/USD</option>
+                <option value="GBPUSD">GBP/USD</option>
+                <option value="EURJPY">EUR/JPY</option>
+                <option value="GBPJPY">GBP/JPY</option>
+                <option value="CHFJPY">CHF/JPY</option>
+            </select>
 
-logging.basicConfig(level=logging.INFO)
+            <label>Start Date:</label>
+            <input type="date" id="start_date" value="2023-01-01">
 
-def backtest_pair(pair, start_date=None, end_date=None, initial_balance=10000):
-    # Load data
-    df_1d = load_data(pair, '1D')
-    df_4h = load_data(pair, '4h')
-    
-    if df_1d is None or df_4h is None:
-        logging.error(f"Data untuk {pair} tidak lengkap.")
-        return
-    
-    # Tambah indikator ke kedua dataframe
-    df_1d = add_indicators(df_1d)
-    df_4h = add_indicators(df_4h)
-    
-    # Pastikan indeks datetime
-    df_1d.sort_index(inplace=True)
-    df_4h.sort_index(inplace=True)
-    
-    # Filter tanggal jika perlu
-    if start_date:
-        df_1d = df_1d[df_1d.index >= start_date]
-        df_4h = df_4h[df_4h.index >= start_date]
-    if end_date:
-        df_1d = df_1d[df_1d.index <= end_date]
-        df_4h = df_4h[df_4h.index <= end_date]
-    
-    # Kita akan iterate pada df_4h
-    trades = []
-    balance = initial_balance
-    in_position = False
-    entry_price = None
-    sl = None
-    tp = None
-    entry_time = None
-    direction = None
-    
-    # Bobot teknikal (sama seperti di analyzer)
-    tech_weights = {'1D': 0.6, '4h': 0.4}
-    
-    # Untuk setiap baris di df_4h (mulai dari indeks ke-200 agar indikator stabil)
-    min_index = max(200, df_4h.shape[0] // 2)  # sederhana, pastikan indikator tidak NaN
-    for i in range(min_index, len(df_4h)):
-        current_time = df_4h.index[i]
-        
-        # Ambil data 1D hingga waktu ini
-        df_1d_up_to = df_1d[df_1d.index <= current_time]
-        if df_1d_up_to.empty:
-            continue
-        # Ambil baris terakhir dari 1D
-        row_1d = df_1d_up_to.iloc[-1]
-        # Ambil baris saat ini dari 4h
-        row_4h = df_4h.iloc[i]
-        
-        # Hitung skor teknikal untuk masing-masing timeframe menggunakan baris tersebut
-        # Kita perlu fungsi yang menghitung skor dari satu baris (dengan nilai indikator)
-        # Definisikan fungsi di dalam atau gunakan fungsi baru
-        
-        def calculate_scores_from_row(row):
-            # Ini adalah replika dari detect_signals tetapi untuk satu baris
-            buy_score = 0
-            sell_score = 0
-            reasons = []
-            
-            # 1. SMA
-            if pd.notna(row.get('sma_20')) and pd.notna(row.get('sma_50')):
-                if row['Close'] > row['sma_20'] and row['sma_20'] > row['sma_50']:
-                    buy_score += 15
-                    reasons.append("Harga di atas SMA20 & SMA20 > SMA50 (uptrend)")
-                elif row['Close'] < row['sma_20'] and row['sma_20'] < row['sma_50']:
-                    sell_score += 15
-                    reasons.append("Harga di bawah SMA20 & SMA20 < SMA50 (downtrend)")
-            
-            # 2. MACD
-            if pd.notna(row.get('trend_macd')) and pd.notna(row.get('trend_macd_signal')):
-                if row['trend_macd'] > row['trend_macd_signal'] and row['trend_macd'] > 0:
-                    buy_score += 10
-                    reasons.append("MACD di atas signal line (bullish)")
-                elif row['trend_macd'] < row['trend_macd_signal'] and row['trend_macd'] < 0:
-                    sell_score += 10
-                    reasons.append("MACD di bawah signal line (bearish)")
-            
-            # 3. RSI
-            if pd.notna(row.get('momentum_rsi')):
-                if row['momentum_rsi'] < 30:
-                    buy_score += 15
-                    reasons.append("RSI oversold (<30)")
-                elif row['momentum_rsi'] > 70:
-                    sell_score += 15
-                    reasons.append("RSI overbought (>70)")
-                elif row['momentum_rsi'] > 50:
-                    buy_score += 5
-                    reasons.append("RSI di atas 50")
-                elif row['momentum_rsi'] < 50:
-                    sell_score += 5
-                    reasons.append("RSI di bawah 50")
-            
-            # 4. Stochastic
-            if pd.notna(row.get('momentum_stoch')) and pd.notna(row.get('momentum_stoch_signal')):
-                if row['momentum_stoch'] < 20 and row['momentum_stoch_signal'] < 20:
-                    buy_score += 10
-                    reasons.append("Stochastic oversold")
-                elif row['momentum_stoch'] > 80 and row['momentum_stoch_signal'] > 80:
-                    sell_score += 10
-                    reasons.append("Stochastic overbought")
-            
-            # 5. Bollinger Bands
-            if pd.notna(row.get('volatility_bbl')) and pd.notna(row.get('volatility_bbh')):
-                if row['Close'] < row['volatility_bbl']:
-                    buy_score += 10
-                    reasons.append("Harga menyentuh lower band (potensi rebound)")
-                elif row['Close'] > row['volatility_bbh']:
-                    sell_score += 10
-                    reasons.append("Harga menyentuh upper band (potensi koreksi)")
-            
-            # 6. Support/Resistance
-            if pd.notna(row.get('support')) and row['Close'] <= row['support'] * 1.01:
-                buy_score += 10
-                reasons.append("Mendekati level support")
-            if pd.notna(row.get('resistance')) and row['Close'] >= row['resistance'] * 0.99:
-                sell_score += 10
-                reasons.append("Mendekati level resistance")
-            
-            max_score = 70
-            buy_score = min(100, (buy_score / max_score) * 100)
-            sell_score = min(100, (sell_score / max_score) * 100)
-            return buy_score, sell_score, reasons
-        
-        # Hitung skor untuk 1D dan 4H
-        buy_1d, sell_1d, reasons_1d = calculate_scores_from_row(row_1d)
-        buy_4h, sell_4h, reasons_4h = calculate_scores_from_row(row_4h)
-        
-        # Gabungkan skor teknikal
-        total_buy = buy_1d * tech_weights['1D'] + buy_4h * tech_weights['4h']
-        total_sell = sell_1d * tech_weights['1D'] + sell_4h * tech_weights['4h']
-        
-        if total_buy > total_sell:
-            tech_dir = "BUY"
-            tech_conf = total_buy
-        elif total_sell > total_buy:
-            tech_dir = "SELL"
-            tech_conf = total_sell
-        else:
-            tech_dir = "NEUTRAL"
-            tech_conf = 50.0
-        
-        # Fundamental dianggap netral (bisa ditambahkan nanti)
-        fund_dir = "NEUTRAL"
-        fund_conf = 50.0
-        
-        # Gabungkan dengan bobot (sama seperti di analyzer)
-        from analyzer import WEIGHT_TECHNICAL, WEIGHT_FUNDAMENTAL
-        dir_val = {"BUY": 1, "SELL": -1, "NEUTRAL": 0}
-        tech_val = dir_val[tech_dir] * tech_conf
-        fund_val = dir_val[fund_dir] * fund_conf
-        combined = WEIGHT_TECHNICAL * tech_val + WEIGHT_FUNDAMENTAL * fund_val
-        if combined > 0:
-            final_dir = "BUY"
-            final_conf = abs(combined)
-        elif combined < 0:
-            final_dir = "SELL"
-            final_conf = abs(combined)
-        else:
-            final_dir = "NEUTRAL"
-            final_conf = 50.0
-        
-        # Jika final_conf >= 65 dan tidak dalam posisi, entry
-        if final_conf >= 65 and not in_position:
-            entry_price = row_4h['Close']
-            atr = row_4h.get('volatility_atr', 0)
-            if atr > 0:
-                sl, tp = calculate_sl_tp(entry_price, atr, final_dir)
-                in_position = True
-                direction = final_dir
-                entry_time = current_time
-                # Catat trade dibuka
-                trades.append({
-                    'entry_time': entry_time,
-                    'direction': direction,
-                    'entry_price': entry_price,
-                    'sl': sl,
-                    'tp': tp,
-                    'exit_time': None,
-                    'exit_price': None,
-                    'pnl': None,
-                    'result': None
-                })
-        
-        # Jika dalam posisi, cek apakah terkena SL atau TP
-        elif in_position:
-            # Cek apakah harga menyentuh SL atau TP
-            if direction == "BUY":
-                if row_4h['Low'] <= sl:
-                    # Kena SL
-                    exit_price = sl
-                    pnl = (exit_price - entry_price) / entry_price
-                    result = "LOSS"
-                    # Tutup posisi
-                    trades[-1].update({
-                        'exit_time': current_time,
-                        'exit_price': exit_price,
-                        'pnl': pnl,
-                        'result': result
-                    })
-                    in_position = False
-                elif row_4h['High'] >= tp:
-                    # Kena TP
-                    exit_price = tp
-                    pnl = (exit_price - entry_price) / entry_price
-                    result = "WIN"
-                    trades[-1].update({
-                        'exit_time': current_time,
-                        'exit_price': exit_price,
-                        'pnl': pnl,
-                        'result': result
-                    })
-                    in_position = False
-            elif direction == "SELL":
-                if row_4h['High'] >= sl:
-                    exit_price = sl
-                    pnl = (entry_price - exit_price) / entry_price  # untuk short
-                    result = "LOSS"
-                    trades[-1].update({
-                        'exit_time': current_time,
-                        'exit_price': exit_price,
-                        'pnl': pnl,
-                        'result': result
-                    })
-                    in_position = False
-                elif row_4h['Low'] <= tp:
-                    exit_price = tp
-                    pnl = (entry_price - exit_price) / entry_price
-                    result = "WIN"
-                    trades[-1].update({
-                        'exit_time': current_time,
-                        'exit_price': exit_price,
-                        'pnl': pnl,
-                        'result': result
-                    })
-                    in_position = False
-    
-    # Jika masih ada posisi terbuka di akhir, tutup dengan harga close terakhir
-    if in_position:
-        last_row = df_4h.iloc[-1]
-        exit_price = last_row['Close']
-        if direction == "BUY":
-            pnl = (exit_price - entry_price) / entry_price
-        else:
-            pnl = (entry_price - exit_price) / entry_price
-        trades[-1].update({
-            'exit_time': last_row.name,
-            'exit_price': exit_price,
-            'pnl': pnl,
-            'result': 'OPEN'  # atau 'FORCE_CLOSE'
-        })
-    
-    # Buat DataFrame trades
-    df_trades = pd.DataFrame(trades)
-    
-    # Hitung statistik
-    if len(df_trades) > 0:
-        closed_trades = df_trades[df_trades['result'].isin(['WIN', 'LOSS'])]
-        wins = closed_trades[closed_trades['result'] == 'WIN']
-        losses = closed_trades[closed_trades['result'] == 'LOSS']
-        win_rate = len(wins) / len(closed_trades) if len(closed_trades) > 0 else 0
-        total_pnl = closed_trades['pnl'].sum()
-        profit_factor = abs(wins['pnl'].sum() / losses['pnl'].sum()) if len(losses) > 0 and losses['pnl'].sum() != 0 else float('inf')
-        
-        print(f"=== Backtest untuk {pair} ===")
-        print(f"Jumlah trade: {len(closed_trades)}")
-        print(f"Win rate: {win_rate*100:.2f}%")
-        print(f"Total PnL: {total_pnl*100:.2f}%")
-        print(f"Profit factor: {profit_factor:.2f}")
-        print(df_trades)
-    else:
-        print(f"Tidak ada trade yang memenuhi confidence >=65% untuk {pair}")
+            <label>End Date:</label>
+            <input type="date" id="end_date" value="2024-01-01">
 
-if __name__ == "__main__":
-    # Contoh untuk EURUSD
-    backtest_pair('EURUSD')
+            <label>Min Confidence (%):</label>
+            <input type="number" id="min_confidence" value="65" min="0" max="100" step="1">
+
+            <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center;">
+                <label>
+                    <input type="radio" name="dataSource" value="local" checked> Data Lokal (CSV)
+                </label>
+                <label>
+                    <input type="radio" name="dataSource" value="api"> Data Real-time (Twelve Data API)
+                </label>
+            </div>
+
+            <div id="apiOptions" style="display: none;">
+                <label>Interval:</label>
+                <select id="apiInterval">
+                    <option value="1h">1 Hour</option>
+                    <option value="4h" selected>4 Hours</option>
+                    <option value="1day">1 Day</option>
+                </select>
+                
+                <label>Periode (hari):</label>
+                <input type="number" id="apiDays" value="90" min="30" max="365">
+            </div>
+
+            <button id="runBtn">Jalankan Backtest</button>
+            <div id="loading" style="display: none; margin-left: 10px;">
+                <div class="loading"></div>
+            </div>
+        </div>
+
+        <div id="results" style="display: none;"></div>
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        // Toggle API options
+        document.querySelectorAll('input[name="dataSource"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                document.getElementById('apiOptions').style.display = 
+                    this.value === 'api' ? 'block' : 'none';
+            });
+        });
+
+        // Fungsi untuk menjalankan backtest
+        async function runBacktest() {
+            const pair = document.getElementById('pair').value;
+            const startDate = document.getElementById('start_date').value;
+            const endDate = document.getElementById('end_date').value;
+            const minConfidence = document.getElementById('min_confidence').value;
+            const dataSource = document.querySelector('input[name="dataSource"]:checked').value;
+            
+            let url = '/backtest';
+            let payload = { pair, min_confidence: minConfidence };
+            
+            if (dataSource === 'api') {
+                url = '/api/backtest-realtime';
+                payload.interval = document.getElementById('apiInterval').value;
+                payload.days_back = document.getElementById('apiDays').value;
+            } else {
+                payload.start_date = startDate;
+                payload.end_date = endDate;
+            }
+            
+            // Tampilkan loading
+            document.getElementById('loading').style.display = 'inline-block';
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    document.getElementById('error').textContent = 'Error: ' + data.error;
+                    document.getElementById('error').style.display = 'block';
+                } else if (data.message) {
+                    document.getElementById('error').textContent = data.message;
+                    document.getElementById('error').style.display = 'block';
+                } else {
+                    displayResults(data);
+                }
+            } catch (err) {
+                document.getElementById('error').textContent = 'Gagal terhubung ke server.';
+                document.getElementById('error').style.display = 'block';
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // Fungsi menampilkan hasil
+        function displayResults(data) {
+            const resultsDiv = document.getElementById('results');
+            
+            let html = `
+                <div class="stats">
+                    <div class="stat-item">
+                        <div>Total Trades</div>
+                        <div class="stat-value">${data.total_trades}</div>
+                    </div>
+                    <div class="stat-item">
+                        <div>Win Rate</div>
+                        <div class="stat-value">${data.win_rate}%</div>
+                    </div>
+                    <div class="stat-item">
+                        <div>Total Profit</div>
+                        <div class="stat-value">${data.total_profit_pct}%</div>
+                    </div>
+                    <div class="stat-item">
+                        <div>Avg Profit</div>
+                        <div class="stat-value">${data.avg_profit_pct}%</div>
+                    </div>
+                    <div class="stat-item">
+                        <div>Profit Factor</div>
+                        <div class="stat-value">${data.profit_factor}</div>
+                    </div>
+                    <div class="stat-item">
+                        <div>Max Drawdown</div>
+                        <div class="stat-value">${data.max_drawdown_pct}%</div>
+                    </div>
+                </div>
+                <h3 style="margin-top: 20px;">20 Trades Terakhir</h3>
+                <table>
+                    <tr>
+                        <th>Entry Time</th>
+                        <th>Direction</th>
+                        <th>Entry</th>
+                        <th>SL</th>
+                        <th>TP</th>
+                        <th>Exit Time</th>
+                        <th>Result</th>
+                        <th>Profit %</th>
+                    </tr>
+            `;
+
+            data.trades.forEach(t => {
+                html += `
+                    <tr>
+                        <td>${t.entry_time}</td>
+                        <td>${t.direction}</td>
+                        <td>${t.entry_price.toFixed(5)}</td>
+                        <td>${t.sl.toFixed(5)}</td>
+                        <td>${t.tp.toFixed(5)}</td>
+                        <td>${t.exit_time}</td>
+                        <td class="${t.win ? 'win' : 'loss'}">${t.win ? 'WIN' : 'LOSS'}</td>
+                        <td>${t.profit_pct.toFixed(2)}%</td>
+                    </tr>
+                `;
+            });
+
+            html += '</table>';
+            
+            if (data.data_period) {
+                html += `<p><small>Data periode: ${data.data_period}</small></p>`;
+            }
+            
+            resultsDiv.innerHTML = html;
+            resultsDiv.style.display = 'block';
+        }
+
+        // Event listener tombol
+        document.getElementById('runBtn').addEventListener('click', runBacktest);
+    </script>
+</body>
+</html>
