@@ -10,13 +10,11 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Load environment variables
 env_path = Path(__file__).parent / '.env'
 load_dotenv(env_path)
 API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 BASE_URL = "https://api.twelvedata.com"
 
-# Rate limiting untuk free tier (8 detik antara request)
 REQUEST_DELAY = 8
 last_request_time = 0
 
@@ -119,6 +117,8 @@ def download_and_cache(symbol, interval, output_folder="data/api"):
         if datetime.now() - file_time < timedelta(days=1):
             logging.info(f"Menggunakan cached data: {filename}")
             df = pd.read_csv(filepath, index_col=0, parse_dates=True)
+            # Pastikan kolom berformat Title Case (Open, High, dll)
+            df.columns = [col.capitalize() for col in df.columns]
             return df
 
     logging.info(f"Downloading {symbol} {interval}...")
