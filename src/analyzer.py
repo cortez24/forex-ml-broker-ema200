@@ -1,77 +1,30 @@
 import os
 import pandas as pd
 import numpy as np
-import yfinance as yf
 import joblib
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from datetime import datetime, timedelta
 import warnings
+from config import MODEL_FOLDER, CONF_THRESHOLD, SIGNAL_TIMEFRAME, PAIRS, TIMEFRAMES
+from data_loader import load_historical_data, get_realtime_price
 
-# Abaikan peringatan dari sklearn.utils.parallel yang muncul akibat penggunaan internal
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn.utils.parallel")
 
-DATA_FOLDER = "data"
-MODEL_FOLDER = "models"
-CONF_THRESHOLD = 60
-TIMEFRAME = "4h"
-
-os.makedirs(DATA_FOLDER, exist_ok=True)
+# Pastikan folder models ada
 os.makedirs(MODEL_FOLDER, exist_ok=True)
 
+def model_file(pair, timeframe):
+    return os.path.join(MODEL_FOLDER, f"{pair}_{timeframe}_rf.pkl")
+
+def model_meta_file(pair, timeframe):
+    return os.path.join(MODEL_FOLDER, f"{pair}_{timeframe}_meta.pkl")
 
 # =========================
-# FILE HANDLER
+# INDICATORS (sama seperti sebelumnya)
 # =========================
-
-def data_file(pair):
-    return os.path.join(DATA_FOLDER, f"{pair}_4h.csv")
-
-def model_file(pair):
-    return os.path.join(MODEL_FOLDER, f"{pair}_rf.pkl")
-
-def model_meta_file(pair):
-    return os.path.join(MODEL_FOLDER, f"{pair}_meta.pkl")
-
-
-# =========================
-# DOWNLOAD 2 YEARS DATA
-# =========================
-
-def download_data(pair):
-    yahoo_symbol = pair if pair.endswith("=X") else pair + "=X"
-    end = datetime.now()
-    start = end - timedelta(days=730)
-
-    df = yf.download(
-        yahoo_symbol,
-        start=start,
-        end=end,
-        interval="4h",
-        auto_adjust=True
-    )
-
-    if df.empty:
-        raise ValueError("Pair tidak valid atau tidak ada data")
-
-    # HANDLE MultiIndex (yfinance terbaru)
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-
-    df.reset_index(inplace=True)
-
-    # convert semua kolom jadi string lowercase (aman untuk tuple)
-    df.columns = [str(c).lower() for c in df.columns]
-
-    df.to_csv(data_file(pair), index=False)
-    return True
-
-
-# =========================
-# INDICATORS
-# =========================
-
 def compute_indicators(df):
+    df = df.copy()
     df["ema50"] = df["close"].ewm(span=50).mean()
     df["ema200"] = df["close"].ewm(span=200).mean()
     df["ema_distance"] = df["ema50"] - df["ema200"]
@@ -81,10 +34,8 @@ def compute_indicators(df):
     df["price_vs_ema"] = df["close"] - df["ema50"]
     df["atr"] = compute_atr(df, 14)
     df["adx"] = compute_adx(df, 14)
-
     df.dropna(inplace=True)
     return df
-
 
 def compute_rsi(series, period):
     delta = series.diff()
@@ -95,14 +46,12 @@ def compute_rsi(series, period):
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
-
 def compute_atr(df, period):
     high_low = df["high"] - df["low"]
     high_close = np.abs(df["high"] - df["close"].shift())
     low_close = np.abs(df["low"] - df["close"].shift())
     tr = np.maximum(high_low, np.maximum(high_close, low_close))
     return tr.rolling(period).mean()
-
 
 def compute_adx(df, period):
     plus_dm = df["high"].diff()
@@ -112,11 +61,6 @@ def compute_adx(df, period):
     minus_di = 100 * (minus_dm.rolling(period).mean() / tr)
     dx = abs(plus_di - minus_di) / (plus_di + minus_di) * 100
     return dx.rolling(period).mean()
-
-
-# =========================
-# RULE SCORE
-# =========================
 
 def rule_score(row):
     score = 0
@@ -130,15 +74,14 @@ def rule_score(row):
         score += 20
     return max(0, min(100, score))
 
-
 # =========================
 # TRAIN MODEL
 # =========================
-
-def train_model(pair):
-    df = pd.read_csv(data_file(pair))
+def train_model(pair, timeframe=SIGNAL_TIMEFRAME):
+    df = load_historical_data(pair, timeframe)
     df = compute_indicators(df)
 
+    # Target: apakah harga berikutnya naik (close next > close)
     df["target"] = (df["close"].shift(-1) > df["close"]).astype(int)
     df.dropna(inplace=True)
 
@@ -151,44 +94,69 @@ def train_model(pair):
     X = df[features]
     y = df["target"]
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, shuffle=False)
+    # Bagi data tanpa shuffle (time series)
+    split_idx = int(len(X) * 0.8)
+    X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
+    y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
 
-    # Set n_jobs=1 untuk menghindari paralelisasi internal yang memicu warning
     model = RandomForestClassifier(n_estimators=200, n_jobs=1)
     model.fit(X_train, y_train)
 
-    joblib.dump(model, model_file(pair))
-    joblib.dump(datetime.now(), model_meta_file(pair))
+    joblib.dump(model, model_file(pair, timeframe))
+    joblib.dump(datetime.now(), model_meta_file(pair, timeframe))
 
-
-def ensure_model(pair):
-    if not os.path.exists(model_file(pair)):
-        train_model(pair)
+def ensure_model(pair, timeframe=SIGNAL_TIMEFRAME):
+    model_path = model_file(pair, timeframe)
+    meta_path = model_meta_file(pair, timeframe)
+    
+    if not os.path.exists(model_path):
+        train_model(pair, timeframe)
         return
 
-    last_train = joblib.load(model_meta_file(pair))
+    # Periksa umur model
+    last_train = joblib.load(meta_path)
     if (datetime.now() - last_train).days > 30:
-        train_model(pair)
-
+        train_model(pair, timeframe)
 
 # =========================
-# GENERATE SIGNAL
+# GENERATE SIGNAL (menggabungkan data historis + real-time)
 # =========================
+def generate_signal(pair, timeframe=SIGNAL_TIMEFRAME):
+    # Pastikan model tersedia
+    ensure_model(pair, timeframe)
 
-def generate_signal(pair):
-    ensure_model(pair)
+    # Ambil data historis terbaru (untuk indikator)
+    df_hist = load_historical_data(pair, timeframe)
+    df_hist = compute_indicators(df_hist)
 
-    df = pd.read_csv(data_file(pair))
-    df = compute_indicators(df)
-
-    row = df.iloc[-1]
+    # Ambil harga real-time
+    rt = get_realtime_price(pair)
+    if rt is None:
+        # Jika gagal, gunakan candle terakhir dari historis (kurang akurat)
+        row = df_hist.iloc[-1]
+    else:
+        # Buat row gabungan: indikator dari historis terakhir, harga dari real-time
+        last_hist = df_hist.iloc[-1]
+        # Kita asumsikan indikator masih relevan (untuk sementara)
+        # Sebenarnya perlu hitung ulang indikator dengan data real-time jika memungkinkan,
+        # tapi untuk sederhana, kita gunakan nilai indikator dari candle historis terakhir.
+        # Alternatif: bisa menghitung indikator berdasarkan data real-time jika kita punya cukup data.
+        # Di sini kita hanya menggunakan harga real-time untuk entry.
+        row = last_hist.copy()
+        row['close'] = rt['close']
+        row['high'] = rt['high']
+        row['low'] = rt['low']
+        row['open'] = rt['open']
+        row['volume'] = rt['volume']
+        # Catatan: indikator seperti EMA, RSI, ATR, ADX tidak dihitung ulang.
+        # Untuk akurasi lebih, sebaiknya kumpulkan data real-time dan hitung ulang indikator.
 
     if row["adx"] < 18:
         return {"signal": "NO TRADE", "reason": "ADX < 18"}
 
     trend = 1 if row["ema50"] > row["ema200"] else -1
 
-    model = joblib.load(model_file(pair))
+    model = joblib.load(model_file(pair, timeframe))
 
     features = pd.DataFrame([[
         row["ema_distance"], row["adx"], row["rsi"],
@@ -221,26 +189,26 @@ def generate_signal(pair):
         "entry": round(entry, 5),
         "sl": round(sl, 5),
         "tp1": round(tp1, 5),
-        "tp2": round(tp2, 5)
+        "tp2": round(tp2, 5),
+        "real_time_used": rt is not None
     }
 
-
 # =========================
-# PERFORMANCE REPORT
+# PERFORMANCE REPORT (tetap menggunakan data historis saja)
 # =========================
+def performance_report(pair, timeframe=SIGNAL_TIMEFRAME):
+    ensure_model(pair, timeframe)
 
-def performance_report(pair):
-    ensure_model(pair)
-
-    df = pd.read_csv(data_file(pair))
+    df = load_historical_data(pair, timeframe)
     df = compute_indicators(df)
 
-    model = joblib.load(model_file(pair))
+    model = joblib.load(model_file(pair, timeframe))
 
     trades = []
     equity_curve = []
     equity = 0
 
+    # Loop untuk backtest sederhana (gunakan data dari indeks 200 ke atas)
     for i in range(200, len(df)-1):
         row = df.iloc[i]
 
@@ -292,3 +260,12 @@ def performance_report(pair):
         },
         "equity_curve": equity_curve
     }
+
+# Untuk kemudahan, bisa juga ditambahkan fungsi yang mengembalikan data historis terakhir
+def get_latest_candle(pair, timeframe):
+    df = load_historical_data(pair, timeframe)
+    if df.empty:
+        return None
+    last = df.iloc[-1].to_dict()
+    last['datetime'] = last['datetime'].isoformat()
+    return last
