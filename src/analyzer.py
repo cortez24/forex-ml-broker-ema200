@@ -6,6 +6,10 @@ import joblib
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from datetime import datetime, timedelta
+import warnings
+
+# Abaikan peringatan dari sklearn.utils.parallel yang muncul akibat penggunaan internal
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn.utils.parallel")
 
 DATA_FOLDER = "data"
 MODEL_FOLDER = "models"
@@ -35,9 +39,7 @@ def model_meta_file(pair):
 # =========================
 
 def download_data(pair):
-
     yahoo_symbol = pair if pair.endswith("=X") else pair + "=X"
-
     end = datetime.now()
     start = end - timedelta(days=730)
 
@@ -62,33 +64,25 @@ def download_data(pair):
     df.columns = [str(c).lower() for c in df.columns]
 
     df.to_csv(data_file(pair), index=False)
-
     return True
+
+
 # =========================
 # INDICATORS
 # =========================
 
 def compute_indicators(df):
-
     df["ema50"] = df["close"].ewm(span=50).mean()
     df["ema200"] = df["close"].ewm(span=200).mean()
-
     df["ema_distance"] = df["ema50"] - df["ema200"]
-
     df["rsi"] = compute_rsi(df["close"], 14)
-
     df["momentum"] = df["close"].diff(5)
-
     df["rsi_slope"] = df["rsi"].diff()
-
     df["price_vs_ema"] = df["close"] - df["ema50"]
-
     df["atr"] = compute_atr(df, 14)
-
     df["adx"] = compute_adx(df, 14)
 
     df.dropna(inplace=True)
-
     return df
 
 
@@ -125,20 +119,15 @@ def compute_adx(df, period):
 # =========================
 
 def rule_score(row):
-
     score = 0
-
     if row["ema50"] > row["ema200"]:
         score += 30
     else:
         score -= 30
-
     if 40 < row["rsi"] < 60:
         score += 20
-
     if row["adx"] > 20:
         score += 20
-
     return max(0, min(100, score))
 
 
@@ -147,7 +136,6 @@ def rule_score(row):
 # =========================
 
 def train_model(pair):
-
     df = pd.read_csv(data_file(pair))
     df = compute_indicators(df)
 
@@ -165,7 +153,8 @@ def train_model(pair):
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, shuffle=False)
 
-    model = RandomForestClassifier(n_estimators=200)
+    # Set n_jobs=1 untuk menghindari paralelisasi internal yang memicu warning
+    model = RandomForestClassifier(n_estimators=200, n_jobs=1)
     model.fit(X_train, y_train)
 
     joblib.dump(model, model_file(pair))
@@ -173,7 +162,6 @@ def train_model(pair):
 
 
 def ensure_model(pair):
-
     if not os.path.exists(model_file(pair)):
         train_model(pair)
         return
@@ -188,7 +176,6 @@ def ensure_model(pair):
 # =========================
 
 def generate_signal(pair):
-
     ensure_model(pair)
 
     df = pd.read_csv(data_file(pair))
@@ -219,7 +206,7 @@ def generate_signal(pair):
     final_conf = (rule * 0.6) + (ml_prob * 100 * 0.4)
 
     if final_conf < CONF_THRESHOLD:
-        return {"signal": "NO TRADE", "confidence": round(final_conf,2)}
+        return {"signal": "NO TRADE", "confidence": round(final_conf, 2)}
 
     entry = row["close"]
     sl = entry - (1.2 * row["atr"] * trend)
@@ -230,11 +217,11 @@ def generate_signal(pair):
 
     return {
         "signal": direction,
-        "confidence": round(final_conf,2),
-        "entry": round(entry,5),
-        "sl": round(sl,5),
-        "tp1": round(tp1,5),
-        "tp2": round(tp2,5)
+        "confidence": round(final_conf, 2),
+        "entry": round(entry, 5),
+        "sl": round(sl, 5),
+        "tp1": round(tp1, 5),
+        "tp2": round(tp2, 5)
     }
 
 
@@ -243,7 +230,6 @@ def generate_signal(pair):
 # =========================
 
 def performance_report(pair):
-
     ensure_model(pair)
 
     df = pd.read_csv(data_file(pair))
@@ -256,7 +242,6 @@ def performance_report(pair):
     equity = 0
 
     for i in range(200, len(df)-1):
-
         row = df.iloc[i]
 
         if row["adx"] < 18:
@@ -297,13 +282,13 @@ def performance_report(pair):
     losses = [t for t in trades if t <= 0]
 
     winrate = len(wins)/len(trades)
-    sharpe = np.mean(trades)/np.std(trades) if np.std(trades)!=0 else 0
+    sharpe = np.mean(trades)/np.std(trades) if np.std(trades) != 0 else 0
 
     return {
         "metrics": {
             "total_trades": len(trades),
-            "winrate": round(winrate*100,2),
-            "sharpe": round(sharpe,2)
+            "winrate": round(winrate*100, 2),
+            "sharpe": round(sharpe, 2)
         },
         "equity_curve": equity_curve
     }
