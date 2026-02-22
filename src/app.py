@@ -1,53 +1,66 @@
-from flask import Flask, render_template, request, jsonify, send_file
-import analyzer
-import matplotlib.pyplot as plt
-import io
+from flask import Flask, request, jsonify, render_template
+import os
+import traceback
+
+# Impor fungsi dari analyzer.py
+from analyzer import generate_signal, performance_report, download_data, data_file
 
 app = Flask(__name__)
 
-def get_pair():
-    if request.is_json:
-        return request.get_json().get("pair")
-    return request.form.get("pair")
+# Halaman utama (menampilkan index.html)
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-@app.route("/")
-def home():
-    return render_template("index.html")
+# Endpoint untuk menghasilkan sinyal trading
+@app.route('/api/signal', methods=['POST'])
+def api_signal():
+    # Ambil data JSON dari request
+    data = request.get_json()
+    if not data or 'pair' not in data:
+        return jsonify({'error': 'Pair tidak diberikan'}), 400
 
-@app.route("/download", methods=["POST"])
-def download():
-    pair = get_pair()
-    analyzer.download_data(pair)
-    return jsonify({"status":"Downloaded"})
+    pair = data['pair'].upper()
 
-@app.route("/signal", methods=["POST"])
-def signal():
-    pair = get_pair()
-    return jsonify(analyzer.generate_signal(pair))
+    # Pastikan file data tersedia, jika tidak unduh
+    if not os.path.exists(data_file(pair)):
+        try:
+            download_data(pair)
+        except Exception as e:
+            return jsonify({'error': f'Gagal mengunduh data: {str(e)}'}), 500
 
-@app.route("/performance", methods=["POST"])
-def performance():
-    pair = get_pair()
-    return jsonify(analyzer.performance_report(pair))
+    try:
+        # Panggil fungsi generate_signal dari analyzer
+        result = generate_signal(pair)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': f'Terjadi kesalahan: {str(e)}'}), 500
 
-@app.route("/equity_chart", methods=["POST"])
-def equity_chart():
-    pair = get_pair()
-    report = analyzer.performance_report(pair)
-    equity = report["equity_curve"]
+# Endpoint untuk laporan performa
+@app.route('/api/performance', methods=['POST'])
+def api_performance():
+    data = request.get_json()
+    if not data or 'pair' not in data:
+        return jsonify({'error': 'Pair tidak diberikan'}), 400
 
-    plt.figure()
-    plt.plot(equity)
-    plt.title(f"Equity Curve - {pair}")
-    plt.xlabel("Trades")
-    plt.ylabel("Equity")
+    pair = data['pair'].upper()
 
-    img = io.BytesIO()
-    plt.savefig(img, format="png")
-    img.seek(0)
-    plt.close()
+    # Pastikan file data tersedia
+    if not os.path.exists(data_file(pair)):
+        try:
+            download_data(pair)
+        except Exception as e:
+            return jsonify({'error': f'Gagal mengunduh data: {str(e)}'}), 500
 
-    return send_file(img, mimetype="image/png")
+    try:
+        # Panggil fungsi performance_report dari analyzer
+        result = performance_report(pair)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': f'Terjadi kesalahan: {str(e)}'}), 500
 
-if __name__ == "__main__":
-    app.run(debug=True)
+if __name__ == '__main__':
+    # Jalankan server Flask di semua interface, port 5000
+    app.run(debug=True, host='0.0.0.0', port=5000)
