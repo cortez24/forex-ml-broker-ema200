@@ -1,204 +1,310 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Institutional Trading Engine</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forex Analyzer Dashboard</title>
+    <!-- Bootstrap 5 CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         body {
-            background-color: #0f172a;
-            color: #e2e8f0;
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
+            background-color: #f8f9fa;
         }
-
-        header {
-            background-color: #111827;
-            padding: 20px;
-            font-size: 22px;
-            font-weight: bold;
-            text-align: center;
-            border-bottom: 1px solid #1f2937;
-        }
-
-        .container {
-            padding: 30px;
-        }
-
-        .controls {
-            margin-bottom: 25px;
-        }
-
-        input {
-            padding: 8px;
-            width: 200px;
-            background-color: #1e293b;
-            border: 1px solid #334155;
-            color: white;
-        }
-
-        button {
-            padding: 8px 15px;
-            margin-right: 10px;
-            background-color: #2563eb;
-            border: none;
-            color: white;
-            cursor: pointer;
-        }
-
-        button:hover {
-            background-color: #1d4ed8;
-        }
-
-        .panel {
-            background-color: #111827;
-            padding: 20px;
+        .card {
             margin-top: 20px;
-            border-radius: 5px;
-            border: 1px solid #1f2937;
+            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
         }
-
-        .metric {
-            margin-bottom: 8px;
-        }
-
-        img {
-            margin-top: 20px;
-            border: 1px solid #1f2937;
-        }
-
-        .signal-box {
-            font-size: 18px;
+        .signal-buy {
+            color: #198754;
             font-weight: bold;
         }
-
-        .buy { color: #22c55e; }
-        .sell { color: #ef4444; }
-        .neutral { color: #facc15; }
-
+        .signal-sell {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .signal-notrade {
+            color: #6c757d;
+            font-weight: bold;
+        }
+        #equityChart {
+            max-height: 400px;
+        }
     </style>
 </head>
-
 <body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">Forex Analyzer</span>
+        </div>
+    </nav>
 
-<header>
-    Institutional Hybrid Trading Engine – 4H Timeframe
-</header>
+    <!-- Main Content -->
+    <div class="container mt-4">
+        <!-- Input Pair -->
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Trading Pair</h5>
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-4">
+                        <label for="pairInput" class="form-label">Pair (contoh: EURUSD)</label>
+                        <input type="text" class="form-control" id="pairInput" placeholder="EURUSD" value="EURUSD">
+                    </div>
+                    <div class="col-md-8">
+                        <button class="btn btn-primary me-2" id="btnSignal">Generate Signal</button>
+                        <button class="btn btn-secondary" id="btnPerformance">Performance Report</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-<div class="container">
+        <!-- Signal Result -->
+        <div class="card" id="signalCard" style="display: none;">
+            <div class="card-header">
+                <h5>Signal Result</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Signal:</strong> <span id="signalValue" class="signal-notrade">-</span></p>
+                        <p><strong>Confidence:</strong> <span id="confidenceValue">-</span>%</p>
+                        <p><strong>Entry:</strong> <span id="entryValue">-</span></p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Stop Loss:</strong> <span id="slValue">-</span></p>
+                        <p><strong>Take Profit 1:</strong> <span id="tp1Value">-</span></p>
+                        <p><strong>Take Profit 2:</strong> <span id="tp2Value">-</span></p>
+                        <p id="reasonRow" style="display: none;"><strong>Reason:</strong> <span id="reasonValue"></span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-    <div class="controls">
-        Pair:
-        <input type="text" id="pair" value="GBPJPY">
-        <button onclick="download()">Download Data</button>
-        <button onclick="signal()">Generate Signal</button>
-        <button onclick="performance()">Performance</button>
-        <button onclick="equity()">Equity Curve</button>
+        <!-- Performance Report -->
+        <div class="card" id="performanceCard" style="display: none;">
+            <div class="card-header">
+                <h5>Performance Report</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <p><strong>Total Trades:</strong> <span id="totalTrades">-</span></p>
+                    </div>
+                    <div class="col-md-4">
+                        <p><strong>Winrate:</strong> <span id="winrate">-</span>%</p>
+                    </div>
+                    <div class="col-md-4">
+                        <p><strong>Sharpe Ratio:</strong> <span id="sharpe">-</span></p>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <canvas id="equityChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div id="loadingSpinner" class="text-center mt-3" style="display: none;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+
+        <!-- Error Alert -->
+        <div id="errorAlert" class="alert alert-danger mt-3" style="display: none;"></div>
     </div>
 
-    <div class="panel" id="signalPanel">
-        <div class="signal-box" id="signalResult">No signal yet</div>
-        <div id="signalDetails"></div>
-    </div>
+    <script>
+        // Global variable for chart instance
+        let equityChartInstance = null;
 
-    <div class="panel" id="performancePanel">
-        <h3>Performance Metrics</h3>
-        <div id="metrics"></div>
-    </div>
+        // Get DOM elements
+        const pairInput = document.getElementById('pairInput');
+        const btnSignal = document.getElementById('btnSignal');
+        const btnPerformance = document.getElementById('btnPerformance');
+        const signalCard = document.getElementById('signalCard');
+        const performanceCard = document.getElementById('performanceCard');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const errorAlert = document.getElementById('errorAlert');
 
-    <div class="panel">
-        <h3>Equity Curve</h3>
-        <img id="chart" width="900">
-    </div>
+        // Signal fields
+        const signalValue = document.getElementById('signalValue');
+        const confidenceValue = document.getElementById('confidenceValue');
+        const entryValue = document.getElementById('entryValue');
+        const slValue = document.getElementById('slValue');
+        const tp1Value = document.getElementById('tp1Value');
+        const tp2Value = document.getElementById('tp2Value');
+        const reasonRow = document.getElementById('reasonRow');
+        const reasonValue = document.getElementById('reasonValue');
 
-</div>
+        // Performance fields
+        const totalTrades = document.getElementById('totalTrades');
+        const winrate = document.getElementById('winrate');
+        const sharpe = document.getElementById('sharpe');
+        const equityChartCanvas = document.getElementById('equityChart');
 
-<script>
-
-function getPair(){
-    return document.getElementById("pair").value;
-}
-
-function download(){
-    fetch("/download",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({pair:getPair()})
-    })
-    .then(res=>res.json())
-    .then(data=>{
-        alert("Data Downloaded Successfully");
-    });
-}
-
-function signal(){
-    fetch("/signal",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({pair:getPair()})
-    })
-    .then(res=>res.json())
-    .then(data=>{
-
-        let signalBox = document.getElementById("signalResult");
-        let detailBox = document.getElementById("signalDetails");
-
-        if(data.signal === "BUY"){
-            signalBox.className = "signal-box buy";
-        } else if(data.signal === "SELL"){
-            signalBox.className = "signal-box sell";
-        } else {
-            signalBox.className = "signal-box neutral";
+        // Helper: show error message
+        function showError(message) {
+            errorAlert.style.display = 'block';
+            errorAlert.innerText = 'Error: ' + message;
+            loadingSpinner.style.display = 'none';
         }
 
-        signalBox.innerHTML = "Signal: " + data.signal;
-
-        detailBox.innerHTML = `
-            Confidence: ${data.confidence || "-"}% <br>
-            Entry: ${data.entry || "-"} <br>
-            SL: ${data.sl || "-"} <br>
-            TP1: ${data.tp1 || "-"} <br>
-            TP2: ${data.tp2 || "-"}
-        `;
-    });
-}
-
-function performance(){
-    fetch("/performance",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({pair:getPair()})
-    })
-    .then(res=>res.json())
-    .then(data=>{
-
-        if(data.error){
-            alert(data.error);
-            return;
+        // Helper: hide error
+        function hideError() {
+            errorAlert.style.display = 'none';
         }
 
-        let m = data.metrics;
+        // Helper: reset signal display
+        function resetSignalDisplay() {
+            signalCard.style.display = 'none';
+            signalValue.innerText = '-';
+            confidenceValue.innerText = '-';
+            entryValue.innerText = '-';
+            slValue.innerText = '-';
+            tp1Value.innerText = '-';
+            tp2Value.innerText = '-';
+            reasonRow.style.display = 'none';
+        }
 
-        document.getElementById("metrics").innerHTML = `
-            <div class="metric">Total Trades: ${m.total_trades}</div>
-            <div class="metric">Winrate: ${m.winrate}%</div>
-            <div class="metric">Sharpe Ratio: ${m.sharpe}</div>
-        `;
-    });
-}
+        // Helper: reset performance display
+        function resetPerformanceDisplay() {
+            performanceCard.style.display = 'none';
+            totalTrades.innerText = '-';
+            winrate.innerText = '-';
+            sharpe.innerText = '-';
+            if (equityChartInstance) {
+                equityChartInstance.destroy();
+                equityChartInstance = null;
+            }
+        }
 
-function equity(){
-    fetch("/equity_chart",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({pair:getPair()})
-    })
-    .then(response => response.blob())
-    .then(blob=>{
-        document.getElementById("chart").src = URL.createObjectURL(blob);
-    });
-}
+        // Event listener for Generate Signal
+        btnSignal.addEventListener('click', async () => {
+            const pair = pairInput.value.trim().toUpperCase();
+            if (!pair) {
+                showError('Please enter a pair.');
+                return;
+            }
+            hideError();
+            resetSignalDisplay();
+            resetPerformanceDisplay();
+            loadingSpinner.style.display = 'block';
 
-</script>
+            try {
+                const response = await fetch('/api/signal', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pair: pair })
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
+                const data = await response.json();
+                loadingSpinner.style.display = 'none';
 
+                // Display signal
+                signalCard.style.display = 'block';
+                const signalText = data.signal || 'NO TRADE';
+                signalValue.innerText = signalText;
+                // Set color class
+                signalValue.className = '';
+                if (signalText === 'BUY') signalValue.classList.add('signal-buy');
+                else if (signalText === 'SELL') signalValue.classList.add('signal-sell');
+                else signalValue.classList.add('signal-notrade');
+
+                confidenceValue.innerText = data.confidence !== undefined ? data.confidence : '-';
+                entryValue.innerText = data.entry !== undefined ? data.entry : '-';
+                slValue.innerText = data.sl !== undefined ? data.sl : '-';
+                tp1Value.innerText = data.tp1 !== undefined ? data.tp1 : '-';
+                tp2Value.innerText = data.tp2 !== undefined ? data.tp2 : '-';
+
+                if (data.reason) {
+                    reasonRow.style.display = 'block';
+                    reasonValue.innerText = data.reason;
+                } else {
+                    reasonRow.style.display = 'none';
+                }
+            } catch (error) {
+                loadingSpinner.style.display = 'none';
+                showError(error.message);
+            }
+        });
+
+        // Event listener for Performance Report
+        btnPerformance.addEventListener('click', async () => {
+            const pair = pairInput.value.trim().toUpperCase();
+            if (!pair) {
+                showError('Please enter a pair.');
+                return;
+            }
+            hideError();
+            resetSignalDisplay();
+            resetPerformanceDisplay();
+            loadingSpinner.style.display = 'block';
+
+            try {
+                const response = await fetch('/api/performance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pair: pair })
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
+                const data = await response.json();
+                loadingSpinner.style.display = 'none';
+
+                // Check if error in response (misalnya "No trades")
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+
+                // Display metrics
+                performanceCard.style.display = 'block';
+                totalTrades.innerText = data.metrics?.total_trades || '-';
+                winrate.innerText = data.metrics?.winrate || '-';
+                sharpe.innerText = data.metrics?.sharpe || '-';
+
+                // Draw equity curve
+                const equityCurve = data.equity_curve || [];
+                if (equityCurve.length > 0 && equityChartCanvas) {
+                    if (equityChartInstance) equityChartInstance.destroy();
+                    const ctx = equityChartCanvas.getContext('2d');
+                    equityChartInstance = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: Array.from({ length: equityCurve.length }, (_, i) => i + 1),
+                            datasets: [{
+                                label: 'Equity Curve',
+                                data: equityCurve,
+                                borderColor: 'rgb(75, 192, 192)',
+                                tension: 0.1,
+                                fill: false
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false }
+                            },
+                            scales: {
+                                y: { beginAtZero: false }
+                            }
+                        }
+                    });
+                }
+            } catch (error) {
+                loadingSpinner.style.display = 'none';
+                showError(error.message);
+            }
+        });
+    </script>
 </body>
 </html>
