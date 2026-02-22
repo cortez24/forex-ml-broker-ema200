@@ -23,61 +23,37 @@
     </nav>
 
     <div class="container mt-4">
-        <!-- Input Section -->
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title">Trading Parameters</h5>
-                <div class="row g-3">
+                <h5 class="card-title">Pilih Pair dan Timeframe</h5>
+                <div class="row g-3 align-items-end">
                     <div class="col-md-3">
-                        <label for="pairSelect" class="form-label">Pair</label>
-                        <select class="form-select" id="pairSelect">
-                            <option value="EURUSD" selected>EURUSD</option>
-                            <option value="GBPUSD">GBPUSD</option>
-                            <option value="USDCAD">USDCAD</option>
-                            <option value="USDCHF">USDCHF</option>
-                            <option value="USDJPY">USDJPY</option>
+                        <label for="pairInput" class="form-label">Pair</label>
+                        <select class="form-select" id="pairInput">
+                            {% for pair in pairs %}
+                            <option value="{{ pair }}">{{ pair }}</option>
+                            {% endfor %}
                         </select>
                     </div>
                     <div class="col-md-3">
                         <label for="timeframeSelect" class="form-label">Timeframe</label>
                         <select class="form-select" id="timeframeSelect">
-                            <option value="15min">15 Menit</option>
-                            <option value="1h">1 Jam</option>
-                            <option value="4h" selected>4 Jam</option>
-                            <option value="1D">1 Hari</option>
+                            {% for tf in timeframes %}
+                            <option value="{{ tf }}" {% if tf == '4h' %}selected{% endif %}>{{ tf }}</option>
+                            {% endfor %}
                         </select>
                     </div>
-                    <div class="col-md-6 d-flex align-items-end">
+                    <div class="col-md-6">
                         <button class="btn btn-primary me-2" id="btnSignal">Generate Signal</button>
-                        <button class="btn btn-secondary me-2" id="btnPerformance">Performance Report</button>
-                        <button class="btn btn-info" id="btnRealtime">Cek Harga Real-time</button>
+                        <button class="btn btn-secondary" id="btnPerformance">Performance Report</button>
                     </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Real-time Price Card -->
-        <div class="card" id="realtimeCard" style="display: none;">
-            <div class="card-header">
-                <h5>Harga Real-time</h5>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-2"><strong>Open:</strong> <span id="rtOpen">-</span></div>
-                    <div class="col-md-2"><strong>High:</strong> <span id="rtHigh">-</span></div>
-                    <div class="col-md-2"><strong>Low:</strong> <span id="rtLow">-</span></div>
-                    <div class="col-md-2"><strong>Close:</strong> <span id="rtClose">-</span></div>
-                    <div class="col-md-2"><strong>Volume:</strong> <span id="rtVolume">-</span></div>
-                    <div class="col-md-2"><strong>Waktu:</strong> <span id="rtTime">-</span></div>
                 </div>
             </div>
         </div>
 
         <!-- Signal Result -->
         <div class="card" id="signalCard" style="display: none;">
-            <div class="card-header">
-                <h5>Signal Result</h5>
-            </div>
+            <div class="card-header"><h5>Signal Result</h5></div>
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-6">
@@ -90,7 +66,6 @@
                         <p><strong>Take Profit 1:</strong> <span id="tp1Value">-</span></p>
                         <p><strong>Take Profit 2:</strong> <span id="tp2Value">-</span></p>
                         <p id="reasonRow" style="display: none;"><strong>Reason:</strong> <span id="reasonValue"></span></p>
-                        <p><strong>Real-time used:</strong> <span id="rtUsed">-</span></p>
                     </div>
                 </div>
             </div>
@@ -98,61 +73,35 @@
 
         <!-- Performance Report -->
         <div class="card" id="performanceCard" style="display: none;">
-            <div class="card-header">
-                <h5>Performance Report</h5>
-            </div>
+            <div class="card-header"><h5>Performance Report</h5></div>
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-4">
-                        <p><strong>Total Trades:</strong> <span id="totalTrades">-</span></p>
-                    </div>
-                    <div class="col-md-4">
-                        <p><strong>Winrate:</strong> <span id="winrate">-</span>%</p>
-                    </div>
-                    <div class="col-md-4">
-                        <p><strong>Sharpe Ratio:</strong> <span id="sharpe">-</span></p>
-                    </div>
+                    <div class="col-md-4"><p><strong>Total Trades:</strong> <span id="totalTrades">-</span></p></div>
+                    <div class="col-md-4"><p><strong>Winrate:</strong> <span id="winrate">-</span>%</p></div>
+                    <div class="col-md-4"><p><strong>Sharpe Ratio:</strong> <span id="sharpe">-</span></p></div>
                 </div>
                 <div class="row mt-3">
-                    <div class="col-12">
-                        <canvas id="equityChart"></canvas>
-                    </div>
+                    <div class="col-12"><canvas id="equityChart"></canvas></div>
                 </div>
             </div>
         </div>
 
-        <!-- Loading Spinner -->
         <div id="loadingSpinner" class="text-center mt-3" style="display: none;">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
+            <div class="spinner-border text-primary"><span class="visually-hidden">Loading...</span></div>
         </div>
-
-        <!-- Error Alert -->
         <div id="errorAlert" class="alert alert-danger mt-3" style="display: none;"></div>
     </div>
 
     <script>
-        let equityChartInstance = null;
-
-        const pairSelect = document.getElementById('pairSelect');
+        // Ambil elemen
+        const pairInput = document.getElementById('pairInput');
         const timeframeSelect = document.getElementById('timeframeSelect');
         const btnSignal = document.getElementById('btnSignal');
         const btnPerformance = document.getElementById('btnPerformance');
-        const btnRealtime = document.getElementById('btnRealtime');
-        const realtimeCard = document.getElementById('realtimeCard');
         const signalCard = document.getElementById('signalCard');
         const performanceCard = document.getElementById('performanceCard');
         const loadingSpinner = document.getElementById('loadingSpinner');
         const errorAlert = document.getElementById('errorAlert');
-
-        // Real-time fields
-        const rtOpen = document.getElementById('rtOpen');
-        const rtHigh = document.getElementById('rtHigh');
-        const rtLow = document.getElementById('rtLow');
-        const rtClose = document.getElementById('rtClose');
-        const rtVolume = document.getElementById('rtVolume');
-        const rtTime = document.getElementById('rtTime');
 
         // Signal fields
         const signalValue = document.getElementById('signalValue');
@@ -163,112 +112,57 @@
         const tp2Value = document.getElementById('tp2Value');
         const reasonRow = document.getElementById('reasonRow');
         const reasonValue = document.getElementById('reasonValue');
-        const rtUsed = document.getElementById('rtUsed');
 
         // Performance fields
         const totalTrades = document.getElementById('totalTrades');
         const winrate = document.getElementById('winrate');
         const sharpe = document.getElementById('sharpe');
         const equityChartCanvas = document.getElementById('equityChart');
+        let equityChartInstance = null;
 
-        function showError(message) {
+        function showError(msg) {
             errorAlert.style.display = 'block';
-            errorAlert.innerText = 'Error: ' + message;
+            errorAlert.innerText = 'Error: ' + msg;
             loadingSpinner.style.display = 'none';
         }
         function hideError() { errorAlert.style.display = 'none'; }
 
-        function resetSignalDisplay() {
+        function resetSignal() {
             signalCard.style.display = 'none';
-            signalValue.innerText = '-';
-            confidenceValue.innerText = '-';
-            entryValue.innerText = '-';
-            slValue.innerText = '-';
-            tp1Value.innerText = '-';
-            tp2Value.innerText = '-';
+            signalValue.innerText = '-'; confidenceValue.innerText = '-'; entryValue.innerText = '-';
+            slValue.innerText = '-'; tp1Value.innerText = '-'; tp2Value.innerText = '-';
             reasonRow.style.display = 'none';
-            rtUsed.innerText = '-';
         }
-
-        function resetPerformanceDisplay() {
+        function resetPerformance() {
             performanceCard.style.display = 'none';
-            totalTrades.innerText = '-';
-            winrate.innerText = '-';
-            sharpe.innerText = '-';
-            if (equityChartInstance) {
-                equityChartInstance.destroy();
-                equityChartInstance = null;
-            }
+            totalTrades.innerText = '-'; winrate.innerText = '-'; sharpe.innerText = '-';
+            if (equityChartInstance) { equityChartInstance.destroy(); equityChartInstance = null; }
         }
-
-        function resetRealtimeDisplay() {
-            realtimeCard.style.display = 'none';
-            rtOpen.innerText = '-';
-            rtHigh.innerText = '-';
-            rtLow.innerText = '-';
-            rtClose.innerText = '-';
-            rtVolume.innerText = '-';
-            rtTime.innerText = '-';
-        }
-
-        btnRealtime.addEventListener('click', async () => {
-            const pair = pairSelect.value;
-            hideError();
-            resetRealtimeDisplay();
-            loadingSpinner.style.display = 'block';
-
-            try {
-                const response = await fetch('/api/realtime', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pair: pair })
-                });
-                const data = await response.json();
-                loadingSpinner.style.display = 'none';
-                if (!response.ok) {
-                    showError(data.error || 'Gagal mengambil data real-time');
-                    return;
-                }
-                realtimeCard.style.display = 'block';
-                rtOpen.innerText = data.open;
-                rtHigh.innerText = data.high;
-                rtLow.innerText = data.low;
-                rtClose.innerText = data.close;
-                rtVolume.innerText = data.volume;
-                rtTime.innerText = new Date(data.datetime).toLocaleString();
-            } catch (err) {
-                loadingSpinner.style.display = 'none';
-                showError(err.message);
-            }
-        });
 
         btnSignal.addEventListener('click', async () => {
-            const pair = pairSelect.value;
+            const pair = pairInput.value;
             const timeframe = timeframeSelect.value;
-            hideError();
-            resetSignalDisplay();
-            resetPerformanceDisplay();
-            resetRealtimeDisplay();
+            hideError(); resetSignal(); resetPerformance();
             loadingSpinner.style.display = 'block';
 
             try {
-                const response = await fetch('/api/signal', {
+                const res = await fetch('/api/signal', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pair: pair, timeframe: timeframe })
+                    body: JSON.stringify({ pair, timeframe })
                 });
-                const data = await response.json();
+                const data = await res.json();
                 loadingSpinner.style.display = 'none';
-                if (!response.ok) {
-                    showError(data.error || 'Gagal generate sinyal');
+                if (!res.ok || data.error) {
+                    showError(data.error || `HTTP ${res.status}`);
                     return;
                 }
                 signalCard.style.display = 'block';
-                const signalText = data.signal || 'NO TRADE';
-                signalValue.innerText = signalText;
+                const sig = data.signal || 'NO TRADE';
+                signalValue.innerText = sig;
                 signalValue.className = '';
-                if (signalText === 'BUY') signalValue.classList.add('signal-buy');
-                else if (signalText === 'SELL') signalValue.classList.add('signal-sell');
+                if (sig === 'BUY') signalValue.classList.add('signal-buy');
+                else if (sig === 'SELL') signalValue.classList.add('signal-sell');
                 else signalValue.classList.add('signal-notrade');
 
                 confidenceValue.innerText = data.confidence ?? '-';
@@ -279,10 +173,7 @@
                 if (data.reason) {
                     reasonRow.style.display = 'block';
                     reasonValue.innerText = data.reason;
-                } else {
-                    reasonRow.style.display = 'none';
-                }
-                rtUsed.innerText = data.real_time_used ? 'Ya' : 'Tidak';
+                } else reasonRow.style.display = 'none';
             } catch (err) {
                 loadingSpinner.style.display = 'none';
                 showError(err.message);
@@ -290,49 +181,41 @@
         });
 
         btnPerformance.addEventListener('click', async () => {
-            const pair = pairSelect.value;
+            const pair = pairInput.value;
             const timeframe = timeframeSelect.value;
-            hideError();
-            resetSignalDisplay();
-            resetPerformanceDisplay();
-            resetRealtimeDisplay();
+            hideError(); resetSignal(); resetPerformance();
             loadingSpinner.style.display = 'block';
 
             try {
-                const response = await fetch('/api/performance', {
+                const res = await fetch('/api/performance', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pair: pair, timeframe: timeframe })
+                    body: JSON.stringify({ pair, timeframe })
                 });
-                const data = await response.json();
+                const data = await res.json();
                 loadingSpinner.style.display = 'none';
-                if (!response.ok) {
-                    showError(data.error || 'Gagal ambil performa');
-                    return;
-                }
-                if (data.error) {
-                    showError(data.error);
+                if (!res.ok || data.error) {
+                    showError(data.error || `HTTP ${res.status}`);
                     return;
                 }
                 performanceCard.style.display = 'block';
-                totalTrades.innerText = data.metrics?.total_trades || '-';
-                winrate.innerText = data.metrics?.winrate || '-';
-                sharpe.innerText = data.metrics?.sharpe || '-';
+                totalTrades.innerText = data.metrics?.total_trades ?? '-';
+                winrate.innerText = data.metrics?.winrate ?? '-';
+                sharpe.innerText = data.metrics?.sharpe ?? '-';
 
-                const equityCurve = data.equity_curve || [];
-                if (equityCurve.length > 0 && equityChartCanvas) {
+                const eq = data.equity_curve || [];
+                if (eq.length > 0 && equityChartCanvas) {
                     if (equityChartInstance) equityChartInstance.destroy();
                     const ctx = equityChartCanvas.getContext('2d');
                     equityChartInstance = new Chart(ctx, {
                         type: 'line',
                         data: {
-                            labels: Array.from({ length: equityCurve.length }, (_, i) => i + 1),
+                            labels: Array.from({ length: eq.length }, (_, i) => i+1),
                             datasets: [{
                                 label: 'Equity Curve',
-                                data: equityCurve,
-                                borderColor: 'rgb(75, 192, 192)',
-                                tension: 0.1,
-                                fill: false
+                                data: eq,
+                                borderColor: 'rgb(75,192,192)',
+                                tension: 0.1
                             }]
                         },
                         options: {
