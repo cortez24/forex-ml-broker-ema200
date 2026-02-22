@@ -4,58 +4,71 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Forex Analyzer Dashboard</title>
-    <!-- Bootstrap 5 CDN -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
-        body {
-            background-color: #f8f9fa;
-        }
-        .card {
-            margin-top: 20px;
-            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
-        }
-        .signal-buy {
-            color: #198754;
-            font-weight: bold;
-        }
-        .signal-sell {
-            color: #dc3545;
-            font-weight: bold;
-        }
-        .signal-notrade {
-            color: #6c757d;
-            font-weight: bold;
-        }
-        #equityChart {
-            max-height: 400px;
-        }
+        body { background-color: #f8f9fa; }
+        .card { margin-top: 20px; box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075); }
+        .signal-buy { color: #198754; font-weight: bold; }
+        .signal-sell { color: #dc3545; font-weight: bold; }
+        .signal-notrade { color: #6c757d; font-weight: bold; }
+        #equityChart { max-height: 400px; }
     </style>
 </head>
 <body>
-    <!-- Navbar -->
     <nav class="navbar navbar-dark bg-dark">
         <div class="container-fluid">
             <span class="navbar-brand mb-0 h1">Forex Analyzer</span>
         </div>
     </nav>
 
-    <!-- Main Content -->
     <div class="container mt-4">
-        <!-- Input Pair -->
+        <!-- Input Section -->
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title">Trading Pair</h5>
-                <div class="row g-3 align-items-end">
-                    <div class="col-md-4">
-                        <label for="pairInput" class="form-label">Pair (contoh: EURUSD)</label>
-                        <input type="text" class="form-control" id="pairInput" placeholder="EURUSD" value="EURUSD">
+                <h5 class="card-title">Trading Parameters</h5>
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label for="pairSelect" class="form-label">Pair</label>
+                        <select class="form-select" id="pairSelect">
+                            <option value="EURUSD" selected>EURUSD</option>
+                            <option value="GBPUSD">GBPUSD</option>
+                            <option value="USDCAD">USDCAD</option>
+                            <option value="USDCHF">USDCHF</option>
+                            <option value="USDJPY">USDJPY</option>
+                        </select>
                     </div>
-                    <div class="col-md-8">
+                    <div class="col-md-3">
+                        <label for="timeframeSelect" class="form-label">Timeframe</label>
+                        <select class="form-select" id="timeframeSelect">
+                            <option value="15min">15 Menit</option>
+                            <option value="1h">1 Jam</option>
+                            <option value="4h" selected>4 Jam</option>
+                            <option value="1D">1 Hari</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6 d-flex align-items-end">
                         <button class="btn btn-primary me-2" id="btnSignal">Generate Signal</button>
-                        <button class="btn btn-secondary" id="btnPerformance">Performance Report</button>
+                        <button class="btn btn-secondary me-2" id="btnPerformance">Performance Report</button>
+                        <button class="btn btn-info" id="btnRealtime">Cek Harga Real-time</button>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Real-time Price Card -->
+        <div class="card" id="realtimeCard" style="display: none;">
+            <div class="card-header">
+                <h5>Harga Real-time</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-2"><strong>Open:</strong> <span id="rtOpen">-</span></div>
+                    <div class="col-md-2"><strong>High:</strong> <span id="rtHigh">-</span></div>
+                    <div class="col-md-2"><strong>Low:</strong> <span id="rtLow">-</span></div>
+                    <div class="col-md-2"><strong>Close:</strong> <span id="rtClose">-</span></div>
+                    <div class="col-md-2"><strong>Volume:</strong> <span id="rtVolume">-</span></div>
+                    <div class="col-md-2"><strong>Waktu:</strong> <span id="rtTime">-</span></div>
                 </div>
             </div>
         </div>
@@ -77,6 +90,7 @@
                         <p><strong>Take Profit 1:</strong> <span id="tp1Value">-</span></p>
                         <p><strong>Take Profit 2:</strong> <span id="tp2Value">-</span></p>
                         <p id="reasonRow" style="display: none;"><strong>Reason:</strong> <span id="reasonValue"></span></p>
+                        <p><strong>Real-time used:</strong> <span id="rtUsed">-</span></p>
                     </div>
                 </div>
             </div>
@@ -119,17 +133,26 @@
     </div>
 
     <script>
-        // Global variable for chart instance
         let equityChartInstance = null;
 
-        // Get DOM elements
-        const pairInput = document.getElementById('pairInput');
+        const pairSelect = document.getElementById('pairSelect');
+        const timeframeSelect = document.getElementById('timeframeSelect');
         const btnSignal = document.getElementById('btnSignal');
         const btnPerformance = document.getElementById('btnPerformance');
+        const btnRealtime = document.getElementById('btnRealtime');
+        const realtimeCard = document.getElementById('realtimeCard');
         const signalCard = document.getElementById('signalCard');
         const performanceCard = document.getElementById('performanceCard');
         const loadingSpinner = document.getElementById('loadingSpinner');
         const errorAlert = document.getElementById('errorAlert');
+
+        // Real-time fields
+        const rtOpen = document.getElementById('rtOpen');
+        const rtHigh = document.getElementById('rtHigh');
+        const rtLow = document.getElementById('rtLow');
+        const rtClose = document.getElementById('rtClose');
+        const rtVolume = document.getElementById('rtVolume');
+        const rtTime = document.getElementById('rtTime');
 
         // Signal fields
         const signalValue = document.getElementById('signalValue');
@@ -140,6 +163,7 @@
         const tp2Value = document.getElementById('tp2Value');
         const reasonRow = document.getElementById('reasonRow');
         const reasonValue = document.getElementById('reasonValue');
+        const rtUsed = document.getElementById('rtUsed');
 
         // Performance fields
         const totalTrades = document.getElementById('totalTrades');
@@ -147,19 +171,13 @@
         const sharpe = document.getElementById('sharpe');
         const equityChartCanvas = document.getElementById('equityChart');
 
-        // Helper: show error message
         function showError(message) {
             errorAlert.style.display = 'block';
             errorAlert.innerText = 'Error: ' + message;
             loadingSpinner.style.display = 'none';
         }
+        function hideError() { errorAlert.style.display = 'none'; }
 
-        // Helper: hide error
-        function hideError() {
-            errorAlert.style.display = 'none';
-        }
-
-        // Helper: reset signal display
         function resetSignalDisplay() {
             signalCard.style.display = 'none';
             signalValue.innerText = '-';
@@ -169,9 +187,9 @@
             tp1Value.innerText = '-';
             tp2Value.innerText = '-';
             reasonRow.style.display = 'none';
+            rtUsed.innerText = '-';
         }
 
-        // Helper: reset performance display
         function resetPerformanceDisplay() {
             performanceCard.style.display = 'none';
             totalTrades.innerText = '-';
@@ -183,95 +201,124 @@
             }
         }
 
-        // Event listener for Generate Signal
-        btnSignal.addEventListener('click', async () => {
-            const pair = pairInput.value.trim().toUpperCase();
-            if (!pair) {
-                showError('Please enter a pair.');
-                return;
+        function resetRealtimeDisplay() {
+            realtimeCard.style.display = 'none';
+            rtOpen.innerText = '-';
+            rtHigh.innerText = '-';
+            rtLow.innerText = '-';
+            rtClose.innerText = '-';
+            rtVolume.innerText = '-';
+            rtTime.innerText = '-';
+        }
+
+        btnRealtime.addEventListener('click', async () => {
+            const pair = pairSelect.value;
+            hideError();
+            resetRealtimeDisplay();
+            loadingSpinner.style.display = 'block';
+
+            try {
+                const response = await fetch('/api/realtime', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pair: pair })
+                });
+                const data = await response.json();
+                loadingSpinner.style.display = 'none';
+                if (!response.ok) {
+                    showError(data.error || 'Gagal mengambil data real-time');
+                    return;
+                }
+                realtimeCard.style.display = 'block';
+                rtOpen.innerText = data.open;
+                rtHigh.innerText = data.high;
+                rtLow.innerText = data.low;
+                rtClose.innerText = data.close;
+                rtVolume.innerText = data.volume;
+                rtTime.innerText = new Date(data.datetime).toLocaleString();
+            } catch (err) {
+                loadingSpinner.style.display = 'none';
+                showError(err.message);
             }
+        });
+
+        btnSignal.addEventListener('click', async () => {
+            const pair = pairSelect.value;
+            const timeframe = timeframeSelect.value;
             hideError();
             resetSignalDisplay();
             resetPerformanceDisplay();
+            resetRealtimeDisplay();
             loadingSpinner.style.display = 'block';
 
             try {
                 const response = await fetch('/api/signal', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pair: pair })
+                    body: JSON.stringify({ pair: pair, timeframe: timeframe })
                 });
-                if (!response.ok) {
-                    throw new Error(`HTTP error ${response.status}`);
-                }
                 const data = await response.json();
                 loadingSpinner.style.display = 'none';
-
-                // Display signal
+                if (!response.ok) {
+                    showError(data.error || 'Gagal generate sinyal');
+                    return;
+                }
                 signalCard.style.display = 'block';
                 const signalText = data.signal || 'NO TRADE';
                 signalValue.innerText = signalText;
-                // Set color class
                 signalValue.className = '';
                 if (signalText === 'BUY') signalValue.classList.add('signal-buy');
                 else if (signalText === 'SELL') signalValue.classList.add('signal-sell');
                 else signalValue.classList.add('signal-notrade');
 
-                confidenceValue.innerText = data.confidence !== undefined ? data.confidence : '-';
-                entryValue.innerText = data.entry !== undefined ? data.entry : '-';
-                slValue.innerText = data.sl !== undefined ? data.sl : '-';
-                tp1Value.innerText = data.tp1 !== undefined ? data.tp1 : '-';
-                tp2Value.innerText = data.tp2 !== undefined ? data.tp2 : '-';
-
+                confidenceValue.innerText = data.confidence ?? '-';
+                entryValue.innerText = data.entry ?? '-';
+                slValue.innerText = data.sl ?? '-';
+                tp1Value.innerText = data.tp1 ?? '-';
+                tp2Value.innerText = data.tp2 ?? '-';
                 if (data.reason) {
                     reasonRow.style.display = 'block';
                     reasonValue.innerText = data.reason;
                 } else {
                     reasonRow.style.display = 'none';
                 }
-            } catch (error) {
+                rtUsed.innerText = data.real_time_used ? 'Ya' : 'Tidak';
+            } catch (err) {
                 loadingSpinner.style.display = 'none';
-                showError(error.message);
+                showError(err.message);
             }
         });
 
-        // Event listener for Performance Report
         btnPerformance.addEventListener('click', async () => {
-            const pair = pairInput.value.trim().toUpperCase();
-            if (!pair) {
-                showError('Please enter a pair.');
-                return;
-            }
+            const pair = pairSelect.value;
+            const timeframe = timeframeSelect.value;
             hideError();
             resetSignalDisplay();
             resetPerformanceDisplay();
+            resetRealtimeDisplay();
             loadingSpinner.style.display = 'block';
 
             try {
                 const response = await fetch('/api/performance', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pair: pair })
+                    body: JSON.stringify({ pair: pair, timeframe: timeframe })
                 });
-                if (!response.ok) {
-                    throw new Error(`HTTP error ${response.status}`);
-                }
                 const data = await response.json();
                 loadingSpinner.style.display = 'none';
-
-                // Check if error in response (misalnya "No trades")
+                if (!response.ok) {
+                    showError(data.error || 'Gagal ambil performa');
+                    return;
+                }
                 if (data.error) {
                     showError(data.error);
                     return;
                 }
-
-                // Display metrics
                 performanceCard.style.display = 'block';
                 totalTrades.innerText = data.metrics?.total_trades || '-';
                 winrate.innerText = data.metrics?.winrate || '-';
                 sharpe.innerText = data.metrics?.sharpe || '-';
 
-                // Draw equity curve
                 const equityCurve = data.equity_curve || [];
                 if (equityCurve.length > 0 && equityChartCanvas) {
                     if (equityChartInstance) equityChartInstance.destroy();
@@ -291,18 +338,14 @@
                         options: {
                             responsive: true,
                             maintainAspectRatio: false,
-                            plugins: {
-                                legend: { display: false }
-                            },
-                            scales: {
-                                y: { beginAtZero: false }
-                            }
+                            plugins: { legend: { display: false } },
+                            scales: { y: { beginAtZero: false } }
                         }
                     });
                 }
-            } catch (error) {
+            } catch (err) {
                 loadingSpinner.style.display = 'none';
-                showError(error.message);
+                showError(err.message);
             }
         });
     </script>
